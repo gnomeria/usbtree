@@ -24,28 +24,29 @@ curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/insta
 
 Downloads the latest release for your platform, verifies its sha256 against `checksums.txt`, and installs to `/usr/local/bin` (if writable) or `~/.local/bin`. Customize with environment variables:
 
-| Variable | Effect |
-|----------|--------|
-| `USBTREE_VERSION` | install a specific version, e.g. `0.1.0` (default: latest) |
-| `USBTREE_INSTALL_DIR` | install directory override |
+| Variable              | Effect                                                     |
+| --------------------- | ---------------------------------------------------------- |
+| `USBTREE_VERSION`     | install a specific version, e.g. `0.0.1` (default: latest) |
+| `USBTREE_INSTALL_DIR` | install directory override                                 |
 
 ### Prebuilt binaries
 
 Grab an archive from the [latest release](https://github.com/gnomeria/usbtree/releases/latest):
 
-| Platform | Asset |
-|----------|-------|
-| Linux x86_64 | `usbtree_<version>_linux-amd64.tar.gz` |
-| Linux arm64 | `usbtree_<version>_linux-arm64.tar.gz` |
+| Platform            | Asset                                   |
+| ------------------- | --------------------------------------- |
+| Linux x86_64        | `usbtree_<version>_linux-amd64.tar.gz`  |
+| Linux arm64         | `usbtree_<version>_linux-arm64.tar.gz`  |
 | macOS Apple Silicon | `usbtree_<version>_darwin-arm64.tar.gz` |
-| Windows x86_64 | `usbtree_<version>_windows-amd64.zip` |
+| Windows x86_64      | `usbtree_<version>_windows-amd64.zip`   |
 
 Every archive's sha256 is listed in the release's `checksums.txt`.
 
 > [!NOTE]
 > The macOS and Windows binaries are **not code-signed or notarized**.
+>
 > - **macOS**: Gatekeeper quarantines downloaded binaries. The install script clears the flag for you; if you download manually, run `xattr -d com.apple.quarantine ./usbtree` (or right-click → Open once).
-> - **Windows**: SmartScreen may show "Windows protected your PC" — click *More info* → *Run anyway*, or unblock the file: `Unblock-File usbtree.exe` in PowerShell.
+> - **Windows**: SmartScreen may show "Windows protected your PC" — click _More info_ → _Run anyway_, or unblock the file: `Unblock-File usbtree.exe` in PowerShell.
 >
 > If in doubt, verify the archive's sha256 against `checksums.txt`, or build from source.
 
@@ -78,14 +79,14 @@ usbtree --demo          # fake device tree with scripted hot-plug + traffic
 
 `--demo` needs no USB access at all — it's what the screenshots are recorded from, and a quick way to preview the UI (combine with `--dump` for a one-shot fake tree).
 
-| Key | Action |
-|-----|--------|
-| `j`/`k`, arrows | move selection |
-| `Enter`/`Space` | collapse/expand hub |
-| `h`/`←`, `l`/`→` | fold / unfold |
-| `g`/`Home`, `G`/`End` | top / bottom |
-| `r` | force rescan |
-| `q` / `Esc` | quit |
+| Key                   | Action              |
+| --------------------- | ------------------- |
+| `j`/`k`, arrows       | move selection      |
+| `Enter`/`Space`       | collapse/expand hub |
+| `h`/`←`, `l`/`→`      | fold / unfold       |
+| `g`/`Home`, `G`/`End` | top / bottom        |
+| `r`                   | force rescan        |
+| `q` / `Esc`           | quit                |
 
 ## Configuration
 
