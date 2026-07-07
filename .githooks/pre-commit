@@ -1,0 +1,31 @@
+#!/bin/sh
+# Block secrets and personal info from being committed.
+# Enable once per clone:  git config core.hooksPath .githooks
+set -e
+
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks git --pre-commit --staged --no-banner --redact
+else
+    echo "pre-commit: gitleaks not installed (https://github.com/gitleaks/gitleaks) — secrets scan SKIPPED" >&2
+fi
+
+# Privacy guard: patterns are computed locally / read from an untracked file,
+# so the repo never publishes the private strings it protects against.
+me=$(whoami)
+patterns="/home/$me"
+email=$(git config user.email 2>/dev/null || true)
+[ -n "$email" ] && patterns="$patterns|$email"
+# extra personal patterns, one regex per line (untracked, per-clone):
+extra=$(git rev-parse --git-dir)/info/privacy-patterns
+if [ -f "$extra" ]; then
+    while IFS= read -r p; do
+        [ -n "$p" ] && patterns="$patterns|$p"
+    done < "$extra"
+fi
+
+if git diff --cached -U0 | grep '^+' | grep -inqE "$patterns"; then
+    echo "pre-commit: staged changes contain personal info matching: $patterns" >&2
+    echo "offending lines:" >&2
+    git diff --cached -U0 | grep '^+' | grep -inE "$patterns" >&2
+    exit 1
+fi

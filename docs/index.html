@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>usbtree — a TUI for your USB device tree</title>
+<meta name="description" content="Cross-platform terminal UI for inspecting the USB device tree. Pure Rust, no root, no libusb. Linux, macOS, Windows.">
+<meta property="og:title" content="usbtree">
+<meta property="og:description" content="Cross-platform TUI for inspecting the USB device tree — pure Rust, no root, no libusb.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%8C%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #16161f;
+    --bg2: #1c1c2a;
+    --surface: #2e3045;
+    --sel: #2a2c40;
+    --border: #36384e;
+    --faint: #45475a;
+    --dim: #6c7086;
+    --text: #cdd6f4;
+    --accent: #b48eff;
+    --pill: #7d56f4;
+    --pill-fg: #f8f8fc;
+    --mint: #a6e3a1;
+    --rose: #f38ba8;
+    --blue: #89b4fa;
+    --teal: #94e2d5;
+    --yellow: #f9e2af;
+    --peach: #fab387;
+    --mauve: #cba6f7;
+    --sky: #74c7ec;
+    --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    background-image:
+      radial-gradient(ellipse 60% 40% at 50% -10%, rgba(125, 86, 244, 0.18), transparent),
+      radial-gradient(ellipse 40% 30% at 85% 20%, rgba(148, 226, 213, 0.06), transparent);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---- hero ---- */
+  header { padding: 88px 0 48px; text-align: center; }
+  .brand {
+    display: inline-block;
+    background: var(--pill);
+    color: var(--pill-fg);
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding: 6px 18px;
+    border-radius: 8px;
+    letter-spacing: 0.02em;
+    box-shadow: 0 0 40px rgba(125, 86, 244, 0.45);
+  }
+  h1 {
+    margin-top: 28px;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  h1 .grad {
+    background: linear-gradient(100deg, var(--accent), var(--sky) 60%, var(--mint));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tagline { margin: 18px auto 0; max-width: 620px; color: var(--dim); font-size: 1.1rem; }
+  .tagline b { color: var(--text); font-weight: 600; }
+
+  .install {
+    margin: 36px auto 0;
+    max-width: 860px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    text-align: left;
+  }
+  .install code {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 15px 18px;
+    white-space: nowrap;
+    overflow-x: auto;
+    color: var(--mint);
+  }
+  .install code .p { color: var(--dim); user-select: none; }
+  .install button {
+    flex: none;
+    border: 0;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    padding: 15px 18px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .install button:hover { background: var(--pill); color: var(--pill-fg); }
+
+  .cta { margin-top: 22px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block;
+    padding: 9px 20px;
+    border-radius: 9px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.92rem;
+    border: 1px solid var(--border);
+    color: var(--text);
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .btn.primary { background: var(--pill); border-color: var(--pill); color: var(--pill-fg); }
+  .btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+
+  /* ---- terminal mock ---- */
+  .term {
+    margin: 56px auto 0;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 0 60px rgba(125, 86, 244, 0.10);
+    overflow: hidden;
+  }
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(46, 48, 69, 0.4);
+  }
+  .term-bar i { width: 12px; height: 12px; border-radius: 50%; background: var(--faint); }
+  .term-bar i:nth-child(1) { background: var(--rose); }
+  .term-bar i:nth-child(2) { background: var(--yellow); }
+  .term-bar i:nth-child(3) { background: var(--mint); }
+  .term-bar span { margin-left: 8px; color: var(--dim); font-family: var(--mono); font-size: 0.75rem; }
+  .demo-gif { display: block; width: 100%; height: auto; }
+  .screen {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.75;
+    padding: 16px 18px 18px;
+    overflow-x: auto;
+    white-space: nowrap;
+    text-align: left;
+  }
+  .screen .row { display: block; }
+  .pillx {
+    background: var(--pill); color: var(--pill-fg);
+    font-weight: 700; padding: 1px 8px; border-radius: 4px;
+  }
+  .gut { display: inline-block; width: 8.5ch; padding: 0 0.5ch; background: var(--surface); margin-right: 1ch; }
+  .rail { color: var(--faint); }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+  .acc { color: var(--accent); } .mint { color: var(--mint); } .rose { color: var(--rose); }
+  .blue { color: var(--blue); } .teal { color: var(--teal); } .yellow { color: var(--yellow); }
+  .peach { color: var(--peach); } .sky { color: var(--sky); } .mauve { color: var(--mauve); }
+  .b { font-weight: 700; }
+  .strike { text-decoration: line-through; }
+  .selrow { background: var(--sel); border-radius: 4px; }
+  .badge {
+    background: var(--pill); color: var(--pill-fg);
+    font-weight: 700; padding: 0 6px; border-radius: 3px;
+  }
+  .border-line { color: var(--border); }
+  .spark { color: var(--mint); letter-spacing: -0.05em; }
+
+  /* ---- sections ---- */
+  section { padding: 72px 0 0; }
+  h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+  h2 .hash { color: var(--pill); margin-right: 6px; }
+  .sub { color: var(--dim); margin-top: 6px; max-width: 640px; }
+
+  .grid { margin-top: 32px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: rgba(180, 142, 255, 0.5); transform: translateY(-2px); }
+  .card .ico { font-size: 1.5rem; }
+  .card h3 { margin: 10px 0 6px; font-size: 1.02rem; font-weight: 700; }
+  .card p { color: var(--dim); font-size: 0.92rem; }
+  .card code { font-family: var(--mono); font-size: 0.85em; color: var(--teal); background: var(--surface); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+
+  /* ---- install section ---- */
+  .tabs { margin-top: 28px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .tab {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;
+  }
+  .tab h3 { font-size: 0.95rem; margin-bottom: 12px; }
+  .tab h3 .os { color: var(--dim); font-weight: 400; font-size: 0.85em; }
+  .tab pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; overflow-x: auto;
+    font-family: var(--mono); font-size: 0.78rem; line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .tab pre .c { color: var(--dim); }
+  .tab pre .g { color: var(--mint); }
+  .tab p { color: var(--dim); font-size: 0.86rem; margin-top: 10px; }
+  .tab a { color: var(--sky); }
+  .warn-note { color: var(--yellow); opacity: 0.85; }
+  .install-note {
+    margin-top: 14px;
+    color: var(--yellow);
+    font-size: 0.9rem;
+  }
+
+  /* ---- keys ---- */
+  .keys { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+  .key {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px;
+  }
+  kbd {
+    font-family: var(--mono); font-size: 0.78rem; color: var(--accent); font-weight: 700;
+    background: var(--surface); border: 1px solid var(--faint); border-bottom-width: 2px;
+    border-radius: 6px; padding: 2px 8px; white-space: nowrap;
+  }
+  .key span { color: var(--dim); font-size: 0.9rem; }
+
+  footer {
+    margin-top: 88px; padding: 32px 0 44px;
+    border-top: 1px solid var(--border);
+    text-align: center; color: var(--dim); font-size: 0.9rem;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  footer .heart { color: var(--rose); }
+
+  @media (max-width: 600px) {
+    header { padding-top: 56px; }
+    .install { display: block; }
+    .install code {
+      display: block;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.55;
+    }
+    .install button {
+      width: 100%;
+      border-left: 0;
+      border-top: 1px solid var(--border);
+    }
+    .screen { font-size: 0.62rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <span class="brand">usbtree</span>
+  <h1>Your USB device tree,<br><span class="grad">live in the terminal.</span></h1>
+  <p class="tagline">
+    A cross-platform TUI for inspecting USB devices — hubs, classes, speeds, hot-plug
+    events and live bandwidth. <b>Pure Rust</b> via nusb: <b>no root, no libusb</b>.
+    Linux · macOS · Windows.
+  </p>
+
+  <div class="install">
+    <code id="cmd"><span class="p">$ </span>curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh</code>
+    <button id="copy" aria-label="Copy install command">copy</button>
+  </div>
+
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/gnomeria/usbtree">GitHub ↗</a>
+    <a class="btn" href="https://github.com/gnomeria/usbtree/releases/latest">Releases</a>
+    <a class="btn" href="#install">Install options</a>
+  </div>
+
+  <div class="term" role="img" aria-label="Recording of the usbtree terminal interface">
+    <div class="term-bar"><i></i><i></i><i></i><span>usbtree --demo</span></div>
+    <!-- real recording, regenerated by the Screenshots workflow; the HTML
+         mockup below is the fallback until the GIF exists -->
+    <img class="demo-gif" src="screenshots/demo.gif" alt="usbtree demo recording"
+         onload="document.getElementById('mockup').style.display='none'"
+         onerror="this.remove()">
+    <div class="screen" id="mockup">
+<span class="row"><span class="pillx"> usbtree </span>  <span class="b">14</span><span class="dim"> devices</span><span class="faint">  ·  </span><span class="b">4</span><span class="dim"> buses</span><span class="faint">  ·  </span><span class="dim">up 03:12</span><span class="faint">  ·  </span><span class="mint">◉ usbmon bytes/s</span></span>
+<span class="row border-line">╭─ <span class="acc b">✦ tree</span> ────────────────────────────────────────────────────────╮</span>
+<span class="row">  <span class="gut sky">Hub     </span> <span class="faint">▾ </span><span class="dim">usb1    </span> 🖥️ <span class="acc b">xhci-hcd </span></span>
+<span class="row">  <span class="gut blue">HID     </span> <span class="rail">├─ </span>  <span class="dim">1-1     </span> ⌨️ Unifying Receiver <span class="faint">  ▂ 12M</span> <span class="spark"> ▂▃▂▅▂▁▃▂</span><span class="mint b"> 1.2 K/s</span></span>
+<span class="row selrow"><span class="acc">▌ </span><span class="gut teal">Audio   </span> <span class="rail">├─ </span>  <span class="dim">1-2     </span> 🔊 MOTU M2 <span class="dim">  ▄ 480M</span> <span class="spark"> ▅▆▅▇█▆▅▇▆</span><span class="mint b"> 12.4 M/s</span></span>
+<span class="row">  <span class="gut sky">Hub     </span> <span class="rail">└─ </span><span class="acc b">▸ </span><span class="dim">1-3     </span> 🔌 USB2.0 Hub <span class="dim">  ▄ 480M</span> <span class="badge"> +3 </span></span>
+<span class="row">  <span class="gut sky">Hub     </span> <span class="faint">▾ </span><span class="dim">usb2    </span> 🖥️ <span class="acc b">xhci-hcd </span></span>
+<span class="row">  <span class="gut yellow">Storage </span> <span class="rail">├─ </span>  <span class="mint">2-1     </span> 💾 <span class="mint">Extreme SSD </span><span class="acc">  █ 10G</span> <span class="spark"> ▁▂▇█▇█▆█</span><span class="mint b"> 312 M/s</span>  <span class="mint b">● plugged</span></span>
+<span class="row">  <span class="gut dim">Video   </span> <span class="rail">└─ </span>  <span class="dim">2-3     </span> 🎥 <span class="rose strike">HD Pro Webcam C920 </span>  <span class="rose b">○ unplugged</span></span>
+<span class="row border-line">╰──────────────────────────────────────────────────────────────────╯</span>
+<span class="row border-line">╭─ <span class="acc b">events</span> ───────────────────────────────────────────────────────╮</span>
+<span class="row">  <span class="dim">[03:04] </span><span class="mint b">▲ </span><span class="dim">2-1     </span> 💾 Extreme SSD<span class="faint">  0781:558c</span></span>
+<span class="row">  <span class="dim">[03:11] </span><span class="rose b">▼ </span><span class="dim">2-3     </span> 🎥 HD Pro Webcam C920<span class="faint">  046d:082d</span></span>
+<span class="row border-line">╰──────────────────────────────────────────────────────────────────╯</span>
+<span class="row"> <span class="acc b">j/k</span><span class="dim"> move   </span><span class="acc b">↵</span><span class="dim"> toggle   </span><span class="acc b">h/l</span><span class="dim"> fold/unfold   </span><span class="acc b">g/G</span><span class="dim"> top/bottom   </span><span class="acc b">r</span><span class="dim"> rescan   </span><span class="acc b">q</span><span class="dim"> quit</span></span>
+    </div>
+  </div>
+</header>
+
+<section class="wrap" id="features">
+  <h2><span class="hash">#</span>Features</h2>
+  <p class="sub">Everything <code style="font-family:var(--mono)">lsusb -t</code> shows — plus names that make sense, hot-plug awareness, and live traffic.</p>
+  <div class="grid">
+    <div class="card"><div class="ico">🌳</div><h3>Live device tree</h3>
+      <p>Color-coded class gutter, per-class icons, tree rails, and speed badges (<code>▂ 12M</code> → <code>█ 10G</code>). Rescans every second; collapse hubs to a <code>+N</code> badge.</p></div>
+    <div class="card"><div class="ico">🏷️</div><h3>Names that make sense</h3>
+      <p>Resolution chain: your <code>overrides.ids</code> → descriptor strings → a downloadable usb.ids (<code>--updatelist</code>) → the embedded snapshot → vendor + class heuristics.</p></div>
+    <div class="card"><div class="ico">⚡</div><h3>Hot-plug watch</h3>
+      <p>Plugged devices flash green, unplugged ones linger as red crossed-out ghosts for 30 s, and every event lands in a timestamped log panel.</p></div>
+    <div class="card"><div class="ico">📈</div><h3>Live bandwidth</h3>
+      <p>Per-device sparklines in the tree and a bandwidth graph in the detail panel. Unprivileged URBs/s on Linux; real bytes/s with root + usbmon.</p></div>
+    <div class="card"><div class="ico">🧩</div><h3>Smart composite handling</h3>
+      <p>Misc/IAD (0xef) devices are classified by their interface classes — a MOTU M2 shows as <code>Audio</code>, not <code>Misc</code>.</p></div>
+    <div class="card"><div class="ico">🦀</div><h3>Pure Rust, zero setup</h3>
+      <p>Built on nusb and ratatui: no root, no libusb, no drivers. One static binary for Linux, macOS, and Windows. <code>--dump</code> for scripts, <code>--demo</code> to try it without hardware.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="install">
+  <h2><span class="hash">#</span>Install</h2>
+  <p class="sub">Release archives ship for linux-amd64, linux-arm64, darwin-arm64, and windows-amd64, each sha256-listed in <code style="font-family:var(--mono)">checksums.txt</code>.</p>
+  <p class="install-note">The shell installer and prebuilt binary links require a published GitHub release. If no release is available yet, install from source.</p>
+  <div class="tabs">
+    <div class="tab">
+      <h3>🐚 Shell script <span class="os">— Linux · macOS</span></h3>
+      <pre><span class="c"># installs to /usr/local/bin or ~/.local/bin</span>
+<span class="g">curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh</span></pre>
+      <p>Pin a version with <code style="font-family:var(--mono)">USBTREE_VERSION=0.1.0</code>, pick a directory with <code style="font-family:var(--mono)">USBTREE_INSTALL_DIR</code>. Checksums are verified automatically.</p>
+    </div>
+    <div class="tab">
+      <h3>📦 Prebuilt binary <span class="os">— all platforms</span></h3>
+      <pre><span class="c"># grab it from the latest release</span>
+<span class="g">tar -xzf usbtree_*_linux-amd64.tar.gz
+./usbtree</span></pre>
+      <p>Windows: unzip <code style="font-family:var(--mono)">usbtree_*_windows-amd64.zip</code> and run <code style="font-family:var(--mono)">usbtree.exe</code>. <a href="https://github.com/gnomeria/usbtree/releases/latest">Latest release →</a></p>
+      <p class="warn-note">⚠ Binaries are not code-signed/notarized. macOS: <code style="font-family:var(--mono)">xattr -d com.apple.quarantine ./usbtree</code> (the install script does this for you). Windows: SmartScreen → <i>More info</i> → <i>Run anyway</i>. Verify checksums if in doubt.</p>
+    </div>
+    <div class="tab">
+      <h3>🦀 Cargo <span class="os">— from source</span></h3>
+      <pre><span class="g">cargo install --git https://github.com/gnomeria/usbtree</span></pre>
+      <p>Or clone and <code style="font-family:var(--mono)">cargo build --release</code>. Stable toolchain, edition 2024.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="keys">
+  <h2><span class="hash">#</span>Keyboard</h2>
+  <div class="keys">
+    <div class="key"><kbd>j / k · ↑↓</kbd><span>move selection</span></div>
+    <div class="key"><kbd>↵ · Space</kbd><span>collapse / expand hub</span></div>
+    <div class="key"><kbd>h / l · ← →</kbd><span>fold / unfold</span></div>
+    <div class="key"><kbd>g / G</kbd><span>jump top / bottom</span></div>
+    <div class="key"><kbd>r</kbd><span>force rescan</span></div>
+    <div class="key"><kbd>q · Esc</kbd><span>quit</span></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><a href="https://github.com/gnomeria/usbtree">gnomeria/usbtree</a> · <a href="https://github.com/gnomeria/usbtree/blob/main/LICENSE">MIT</a> · <a href="https://github.com/gnomeria/usbtree/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/gnomeria/usbtree/blob/main/SECURITY.md">Security</a></p>
+    <p>Built with <a href="https://crates.io/crates/nusb">nusb</a> &amp; <a href="https://ratatui.rs">ratatui</a></p>
+  </div>
+</footer>
+
+<script>
+  const btn = document.getElementById('copy');
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText('curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh')
+      .then(() => { btn.textContent = 'copied ✓'; setTimeout(() => btn.textContent = 'copy', 1500); });
+  });
+</script>
+</body>
+</html>

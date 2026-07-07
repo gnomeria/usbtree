@@ -1,0 +1,117 @@
+name: Release
+
+# Fires only on semver tags. Stable (v1.2.3) cuts a full release; prerelease
+# (v1.2.3-rc.1) is flagged as a GitHub pre-release.
+#
+# Modern platforms only (no darwin-amd64). Asset naming:
+#   usbtree_<version>_<os>-<arch>.tar.gz   (linux, darwin)
+#   usbtree_<version>_<os>-<arch>.zip      (windows)
+#   checksums.txt                          (sha256 of every archive)
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  # release-please can't fire the tag-push path above: a tag it pushes with the
+  # default GITHUB_TOKEN won't trigger another workflow. Instead it dispatches
+  # this one on the new tag ref, so GITHUB_REF_NAME is still the tag — every step
+  # below works unchanged for both entry points.
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  # Tags can be pushed off any commit; only release tags that land on main.
+  guard:
+    name: Tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tagged commit is reachable from main
+        run: |
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -qE 'origin/main$'; then
+            echo "::error::Tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on origin/main"
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: guard
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-amd64, runner: ubuntu-24.04, os: linux }
+          - { name: linux-arm64, runner: ubuntu-24.04-arm, os: linux }
+          - { name: darwin-arm64, runner: macos-14, os: macos }
+          - { name: windows-amd64, runner: windows-latest, os: windows }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked
+
+      - name: Archive (tar.gz)
+        if: matrix.os != 'windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ART="usbtree_${VERSION}_${{ matrix.name }}.tar.gz"
+          tar -C target/release -czf "$ART" usbtree
+          shasum -a 256 "$ART" > "$ART.sha256"
+
+      - name: Archive (zip)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $v = "$env:GITHUB_REF_NAME" -replace '^v',''
+          $art = "usbtree_${v}_${{ matrix.name }}.zip"
+          Compress-Archive -Path target/release/usbtree.exe -DestinationPath $art
+          $hash = (Get-FileHash $art -Algorithm SHA256).Hash.ToLower()
+          "$hash  $art" | Out-File "$art.sha256" -Encoding ascii -NoNewline
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            usbtree_*.tar.gz
+            usbtree_*.zip
+            usbtree_*.sha256
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Aggregate checksums + detect prerelease
+        id: meta
+        run: |
+          cd dist
+          cat *.sha256 > checksums.txt
+          rm -f *.sha256
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            dist/usbtree_*.tar.gz
+            dist/usbtree_*.zip
+            dist/checksums.txt

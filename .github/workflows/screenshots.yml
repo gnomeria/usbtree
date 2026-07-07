@@ -1,0 +1,39 @@
+name: Screenshots
+
+# Re-renders docs/screenshots/ (GIF + PNG) from tapes/*.tape using VHS,
+# driving `usbtree --demo` so no real USB hardware is needed. Commits the
+# result back to main; GITHUB_TOKEN pushes don't retrigger workflows, so
+# this can't loop.
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "tapes/**", ".github/workflows/screenshots.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+jobs:
+  vhs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Render tapes
+        uses: charmbracelet/vhs-action@v2
+        with:
+          path: tapes/demo.tape
+
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: regenerate demo screenshots"
+          file_pattern: docs/screenshots/*

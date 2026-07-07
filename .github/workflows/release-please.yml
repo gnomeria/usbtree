@@ -1,0 +1,35 @@
+name: Release Please
+
+# Watches main and maintains a rolling "release PR" that bumps the version +
+# CHANGELOG from Conventional Commit messages. Merging that PR creates the
+# vX.Y.Z tag + GitHub release, then dispatches release.yml on that tag to build
+# and publish the binaries.
+#
+# No PAT needed: the tag release-please creates with GITHUB_TOKEN can't trigger
+# release.yml on its own (GitHub blocks GITHUB_TOKEN from starting other
+# workflows), so we hand off via `gh workflow run` — workflow_dispatch is the
+# documented exception that GITHUB_TOKEN *is* allowed to trigger.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # create the tag + release
+  pull-requests: write # open/update the release PR
+  actions: write # dispatch release.yml
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Build + publish the tagged release
+        if: ${{ steps.rp.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref "${{ steps.rp.outputs.tag_name }}" -R "${{ github.repository }}"

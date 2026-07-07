@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "debug": {
+      "source": "gnomeria/skills",
+      "sourceType": "github",
+      "skillPath": "skills/workflows/debug/SKILL.md",
+      "computedHash": "032ea7c756d0e2b2c559dd606dda5a9e06ee233802050ec90ca224ac0a2e434b"
+    },
+    "refactor": {
+      "source": "gnomeria/skills",
+      "sourceType": "github",
+      "skillPath": "skills/workflows/refactor/SKILL.md",
+      "computedHash": "b80cd602f5832092e30f519e0cd3fb239a6e2254820507b935c35de2cafd2129"
+    },
+    "write-tests": {
+      "source": "gnomeria/skills",
+      "sourceType": "github",
+      "skillPath": "skills/workflows/write-tests/SKILL.md",
+      "computedHash": "d59c543f11d603ef35083cf534af18e87bf7bb2201c84bc5e0542abff8fc8296"
+    }
+  }
+}

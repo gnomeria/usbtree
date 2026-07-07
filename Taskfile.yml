@@ -1,0 +1,71 @@
+# https://taskfile.dev — `task -l` lists everything.
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  run:
+    desc: Run the TUI (debug build)
+    cmds:
+      - cargo run
+
+  demo:
+    desc: Run the TUI with the fake demo tree — no USB hardware needed
+    cmds:
+      - cargo run -- --demo
+
+  dump:
+    desc: Print the device tree once to stdout (no TUI)
+    cmds:
+      - cargo run -- --dump
+
+  build:
+    desc: Release build
+    cmds:
+      - cargo build --release --locked
+
+  test:
+    desc: Run the test suite
+    cmds:
+      - cargo test
+
+  lint:
+    desc: Clippy with warnings as errors
+    cmds:
+      - cargo clippy -- -D warnings
+
+  fmt:
+    desc: Format the code with rustfmt
+    cmds:
+      - cargo fmt
+
+  ci:
+    desc: Everything CI runs (test + release build) plus lint
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+
+  shots:
+    desc: Re-render docs/screenshots/ from tapes/ (needs vhs)
+    cmds:
+      - scripts/shots.sh
+
+  install:
+    desc: Install usbtree from this checkout into ~/.cargo/bin
+    cmds:
+      - cargo install --path . --locked
+
+  hooks:
+    desc: Enable the repo git hooks (pre-commit secrets/privacy scan)
+    cmds:
+      - git config core.hooksPath .githooks
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - cargo clean

@@ -1,0 +1,22 @@
+[package]
+name = "usbtree"
+version = "0.1.0"
+edition = "2024"
+description = "Cross-platform terminal UI for inspecting the USB device tree"
+repository = "https://github.com/gnomeria/usbtree"
+homepage = "https://gnomeria.github.io/usbtree"
+readme = "README.md"
+license = "MIT"
+keywords = ["usb", "tui", "cli", "ratatui", "hardware"]
+categories = ["command-line-utilities", "hardware-support"]
+exclude = [
+    ".agents/",
+    ".claude/",
+    "CLAUDE.md",
+    "skills-lock.json",
+]
+
+[dependencies]
+nusb = "0.2.4"
+ratatui = "0.30.2"
+usb-ids = "1.2026.6"
