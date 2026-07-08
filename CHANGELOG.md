@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.6](https://github.com/gnomeria/usbtree/compare/v0.0.5...v0.0.6) (2026-07-08)
+
+
+### Features
+
+* **ui:** show interfaces + endpoints in detail panel ([#37](https://github.com/gnomeria/usbtree/issues/37)) ([edcb157](https://github.com/gnomeria/usbtree/commit/edcb1577e129ac1cbe281d2b992152419e8259b5))
+
+
+### Bug Fixes
+
+* **install:** brace  to survive bash 3.2 unbound-var ([#35](https://github.com/gnomeria/usbtree/issues/35)) ([6117e75](https://github.com/gnomeria/usbtree/commit/6117e75c82b3d58e5226a56d6df24fa7113ee779))
+* **updatelist:** use vcrhonek/hwdata URL so --updatelist works ([#38](https://github.com/gnomeria/usbtree/issues/38)) ([2b4d5cf](https://github.com/gnomeria/usbtree/commit/2b4d5cfde834ffb2b2869dd458750fa7bcc477ac))
+
 ## [0.0.5](https://github.com/gnomeria/usbtree/compare/v0.0.4...v0.0.5) (2026-07-08)
 
 
