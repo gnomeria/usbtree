@@ -59,7 +59,8 @@ pub struct Endpoint {
 /// sysfs `descriptors` blob that leads with the 18-byte device descriptor.
 // ponytail: reads only the first configuration; multi-config devices are rare
 // and the active one is almost always first. Add config selection if asked.
-pub fn parse_interfaces(blob: &[u8]) -> Vec<Interface> {
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+fn parse_interfaces(blob: &[u8]) -> Vec<Interface> {
     let cfg_bytes = match (blob.first(), blob.get(1)) {
         (Some(18), Some(1)) => &blob[18..], // skip leading device descriptor
         _ => blob,
