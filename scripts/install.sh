@@ -43,7 +43,7 @@ case "$OS" in
     Linux)  OS=linux ;;
     Darwin) OS=darwin ;;
     MINGW* | MSYS* | CYGWIN*)
-        die "this installer is for Linux/macOS — on Windows grab the .zip from https://github.com/$REPO/releases/latest or run: cargo install --git https://github.com/$REPO" ;;
+        die "this installer is for Linux/macOS — on Windows run in PowerShell: irm https://raw.githubusercontent.com/$REPO/main/scripts/install.ps1 | iex" ;;
     *) die "unsupported OS: $OS" ;;
 esac
 

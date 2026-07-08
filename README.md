@@ -45,6 +45,21 @@ Downloads the latest release for your platform, verifies its sha256 against `che
 | `USBTREE_INSTALL_DIR` | install directory override                                 |
 | `USBTREE_SUDO_SYMLINK`| `1` → symlink into `/usr/local/bin` (via `sudo`) so `sudo usbtree` works for usbmon bytes/s |
 
+### PowerShell script (Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex
+```
+
+Downloads the latest release, verifies its sha256 against `checksums.txt`, installs to `%LOCALAPPDATA%\usbtree\bin`, and adds that directory to your user `PATH`. Override with environment variables:
+
+| Variable              | Effect                                                     |
+| --------------------- | ---------------------------------------------------------- |
+| `USBTREE_VERSION`     | install a specific version, e.g. `0.0.1` (default: latest) |
+| `USBTREE_INSTALL_DIR` | install directory override                                 |
+
+The binaries are unsigned — see the note below if SmartScreen warns.
+
 ### Prebuilt binaries
 
 Grab an archive from the [latest release](https://github.com/gnomeria/usbtree/releases/latest):

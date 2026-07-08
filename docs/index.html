@@ -884,6 +884,19 @@
           </p>
         </div>
         <div class="tab">
+          <h3>🪟 PowerShell <span class="os">— Windows</span></h3>
+          <pre><span class="c"># installs to %LOCALAPPDATA%\usbtree\bin, adds it to PATH</span>
+<span class="g">irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex</span></pre>
+          <p>
+            Pin a version with
+            <code style="font-family: var(--mono)">$env:USBTREE_VERSION=&quot;0.0.1&quot;</code>,
+            pick a directory with
+            <code style="font-family: var(--mono)">$env:USBTREE_INSTALL_DIR</code>.
+            Checksums are verified automatically; binaries are unsigned, so
+            SmartScreen may warn on first run.
+          </p>
+        </div>
+        <div class="tab">
           <h3>📦 Prebuilt binary <span class="os">— all platforms</span></h3>
           <pre><span class="c"># grab it from the latest release</span>
 <span class="g">tar -xzf usbtree_*_linux-amd64.tar.gz

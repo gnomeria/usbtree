@@ -1,0 +1,7 @@
+# Statically link the MSVC C runtime into the Windows binary. Without this the
+# exe depends on VCRUNTIME140.dll from the VC++ Redistributable, which most
+# machines don't have preinstalled — the binary dies at launch with
+# "VCRUNTIME140.dll was not found". Baking the CRT in makes usbtree.exe
+# fully self-contained (no redist, no extra download).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
