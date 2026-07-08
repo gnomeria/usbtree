@@ -114,6 +114,11 @@ fn fmt_rate(v: u64, bytes: bool) -> String {
     }
 }
 
+/// USB endpoint transfer-type name from `bmAttributes` bits 0-1.
+fn ep_type(t: u8) -> &'static str {
+    ["ctrl", "iso", "bulk", "int"][(t & 0x03) as usize]
+}
+
 /// Standard base64, no padding elided. ~15 lines beats an extra crate.
 fn base64(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1223,6 +1228,35 @@ impl App {
                 key("connected"),
                 kids.to_string().fg(theme::TEXT),
             ]));
+        }
+        if !d.interfaces.is_empty() {
+            lines.push(Line::from("─".repeat(24).fg(theme::FAINT)));
+            lines.push(Line::from("interfaces".fg(theme::DIM)));
+            for i in &d.interfaces {
+                let mut head = vec![
+                    format!("{:>2} ", i.number).fg(theme::FAINT),
+                    usb::class_name(i.class).fg(class_color(i.class)),
+                    format!("  {:02x}:{:02x}:{:02x}", i.class, i.subclass, i.protocol)
+                        .fg(theme::FAINT),
+                ];
+                if i.alt != 0 {
+                    head.push(format!("  alt{}", i.alt).fg(theme::FAINT));
+                }
+                lines.push(Line::from(head));
+                for e in &i.endpoints {
+                    lines.push(Line::from(vec![
+                        format!("    {:#04x} ", e.address).fg(theme::DIM),
+                        if e.input { "IN  " } else { "OUT " }.fg(theme::ACCENT),
+                        format!("{:<4} ", ep_type(e.transfer)).fg(theme::TEXT),
+                        format!("{}B", e.max_packet).fg(theme::DIM),
+                        match e.transfer {
+                            1 | 3 if e.interval != 0 => format!("  @{}", e.interval),
+                            _ => String::new(),
+                        }
+                        .fg(theme::FAINT),
+                    ]));
+                }
+            }
         }
         let inner = block.inner(area);
         f.render_widget(block, area);

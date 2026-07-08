@@ -25,6 +25,67 @@ pub struct Device {
     /// advertised, not measured draw. Linux (sysfs) + macOS (config descriptor);
     /// None on Windows.
     pub max_power_ma: Option<u16>,
+    /// Interfaces + endpoints of the first configuration (`lsusb -v` depth).
+    /// Linux: unprivileged sysfs `descriptors`. macOS: from the config open we
+    /// already do for power. Empty on Windows (no descriptor read there yet).
+    pub interfaces: Vec<Interface>,
+}
+
+/// One interface alternate setting and its endpoints.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Interface {
+    pub number: u8,
+    pub alt: u8,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
+    pub endpoints: Vec<Endpoint>,
+}
+
+/// One endpoint descriptor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Endpoint {
+    pub address: u8,
+    /// true = IN (device→host), from `bEndpointAddress` bit 7.
+    pub input: bool,
+    /// transfer type: 0 control, 1 iso, 2 bulk, 3 interrupt.
+    pub transfer: u8,
+    pub max_packet: u16,
+    pub interval: u8,
+}
+
+/// Parse interfaces + endpoints from a raw config-descriptor buffer. Accepts a
+/// bare configuration descriptor (macOS `active_configuration`) or a Linux
+/// sysfs `descriptors` blob that leads with the 18-byte device descriptor.
+// ponytail: reads only the first configuration; multi-config devices are rare
+// and the active one is almost always first. Add config selection if asked.
+pub fn parse_interfaces(blob: &[u8]) -> Vec<Interface> {
+    let cfg_bytes = match (blob.first(), blob.get(1)) {
+        (Some(18), Some(1)) => &blob[18..], // skip leading device descriptor
+        _ => blob,
+    };
+    let Some(cfg) = nusb::descriptors::ConfigurationDescriptor::new(cfg_bytes) else {
+        return Vec::new();
+    };
+    cfg.interface_alt_settings()
+        .map(|intf| Interface {
+            number: intf.interface_number(),
+            alt: intf.alternate_setting(),
+            class: intf.class(),
+            subclass: intf.subclass(),
+            protocol: intf.protocol(),
+            endpoints: intf
+                .endpoints()
+                .map(|e| Endpoint {
+                    address: e.address(),
+                    input: e.address() & 0x80 != 0,
+                    transfer: e.attributes() & 0x03,
+                    max_packet: e.max_packet_size() as u16,
+                    interval: e.interval(),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 impl Device {
@@ -181,6 +242,7 @@ pub fn scan() -> Vec<Device> {
                 iface_classes: Vec::new(),
                 devnum: 1, // root hub is always device 1 on its bus
                 max_power_ma: None,
+                interfaces: Vec::new(),
             });
         }
     }
@@ -193,6 +255,7 @@ pub fn scan() -> Vec<Device> {
             continue; // root hub; already synthesized from the bus list
         }
         let path: Vec<String> = chain.iter().map(u8::to_string).collect();
+        let (max_power_ma, interfaces) = descriptors(&d);
         devices.push(Device {
             name: format!("{}-{}", tidy_bus(d.bus_id()), path.join(".")),
             vid: d.vendor_id(),
@@ -208,22 +271,27 @@ pub fn scan() -> Vec<Device> {
                 .filter(|&c| c != 0)
                 .collect(),
             devnum: d.device_address(),
-            #[cfg(target_os = "linux")]
-            max_power_ma: read_max_power(d.sysfs_path()),
-            #[cfg(target_os = "macos")]
-            max_power_ma: macos_max_power(&d),
-            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-            max_power_ma: None,
+            max_power_ma,
+            interfaces,
         });
     }
     devices.sort_by_key(|d| sort_key(&d.name));
     devices
 }
 
-/// Read `bMaxPower` from a device's sysfs dir (unprivileged, no device open).
+/// `bMaxPower` + interfaces on Linux: both from unprivileged sysfs, no device
+/// open. Power from the `bMaxPower` attribute, interfaces from the raw
+/// `descriptors` blob (device + config descriptors concatenated).
 #[cfg(target_os = "linux")]
-fn read_max_power(sysfs: &std::path::Path) -> Option<u16> {
-    parse_max_power(&fs::read_to_string(sysfs.join("bMaxPower")).ok()?)
+fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
+    let sysfs = d.sysfs_path();
+    let power = fs::read_to_string(sysfs.join("bMaxPower"))
+        .ok()
+        .and_then(|s| parse_max_power(&s));
+    let ifaces = fs::read(sysfs.join("descriptors"))
+        .map(|b| parse_interfaces(&b))
+        .unwrap_or_default();
+    (power, ifaces)
 }
 
 /// Parse a sysfs `bMaxPower` value like "500mA" -> 500.
@@ -232,23 +300,26 @@ fn parse_max_power(s: &str) -> Option<u16> {
     s.trim().trim_end_matches("mA").trim().parse().ok()
 }
 
-/// `bMaxPower` on macOS: no sysfs, so open the device (unprivileged — works
-/// even while mounted) and read its active config descriptor. USB spec: the raw
-/// byte is 2mA units, or 8mA for SuperSpeed. Same source as Linux sysfs, just
-/// reached over IOKit. Self-powered devices legitimately report 0.
+/// `bMaxPower` + interfaces on macOS: no sysfs, so open the device
+/// (unprivileged — works even while mounted) and read its active config
+/// descriptor once. Power: the raw byte is 2mA units, or 8mA for SuperSpeed.
+/// Self-powered devices legitimately report 0.
 ///
-/// Cached by locationID: the value never changes for a plugged device, so we
+/// Cached by locationID: descriptors never change for a plugged device, so we
 /// open each one once instead of on every 1s rescan.
 // ponytail: cache is per-session, never evicted, and a transient open failure
-// sticks as None until replug (new locationID). Both fine at this scale —
-// upgrade to a TTL only if devices start flapping their descriptors.
+// sticks until replug (new locationID). Both fine at this scale — upgrade to a
+// TTL only if devices start flapping their descriptors.
 #[cfg(target_os = "macos")]
-fn macos_max_power(d: &nusb::DeviceInfo) -> Option<u16> {
-    static CACHE: OnceLock<std::sync::Mutex<HashMap<u32, Option<u16>>>> = OnceLock::new();
+type DescCache = std::sync::Mutex<HashMap<u32, (Option<u16>, Vec<Interface>)>>;
+
+#[cfg(target_os = "macos")]
+fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
+    static CACHE: OnceLock<DescCache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let loc = d.location_id();
-    if let Some(&v) = cache.lock().unwrap().get(&loc) {
-        return v;
+    if let Some(v) = cache.lock().unwrap().get(&loc) {
+        return v.clone();
     }
     let unit = match d.speed() {
         Some(nusb::Speed::Super | nusb::Speed::SuperPlus) => 8,
@@ -258,10 +329,21 @@ fn macos_max_power(d: &nusb::DeviceInfo) -> Option<u16> {
         .open()
         .wait()
         .ok()
-        .and_then(|dev| dev.active_configuration().ok().map(|c| u16::from(c.max_power())))
-        .map(|raw| raw * unit);
-    cache.lock().unwrap().insert(loc, v);
+        .and_then(|dev| {
+            let c = dev.active_configuration().ok()?;
+            Some((Some(u16::from(c.max_power()) * unit), parse_interfaces(c.as_bytes())))
+        })
+        .unwrap_or((None, Vec::new()));
+    cache.lock().unwrap().insert(loc, v.clone());
     v
+}
+
+/// Windows exposes no unprivileged descriptor read here yet.
+// ponytail: WinUSB can supply these via open(), but that's a behavior change on
+// a platform that currently opens nothing — wire it up when someone needs it.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn descriptors(_d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
+    (None, Vec::new())
 }
 
 /// "001" (zero-padded on Linux) -> "1", keeps non-numeric ids as-is.
@@ -494,6 +576,7 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         iface_classes: ifaces.to_vec(),
         devnum: 0,
         max_power_ma: power,
+        interfaces: demo_interfaces(name),
     };
     let t = t % 30;
     let mut devices = vec![
@@ -518,6 +601,57 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
     }
     devices.sort_by_key(|d| sort_key(&d.name));
     devices
+}
+
+/// Representative interfaces/endpoints for `--demo` devices, so the detail
+/// panel and screenshots show real descriptor depth without hardware.
+fn demo_interfaces(name: &str) -> Vec<Interface> {
+    let ep = |address: u8, transfer: u8, max_packet: u16, interval: u8| Endpoint {
+        address,
+        input: address & 0x80 != 0,
+        transfer,
+        max_packet,
+        interval,
+    };
+    let iface = |number, class, subclass, protocol, endpoints| Interface {
+        number,
+        alt: 0,
+        class,
+        subclass,
+        protocol,
+        endpoints,
+    };
+    match name {
+        "1-1" => vec![
+            iface(0, 0x03, 0x01, 0x01, vec![ep(0x81, 3, 8, 8)]),
+            iface(1, 0x03, 0x00, 0x00, vec![ep(0x82, 3, 32, 2)]),
+        ],
+        "1-2" => vec![
+            iface(0, 0x01, 0x01, 0x00, vec![]),
+            iface(1, 0x01, 0x02, 0x00, vec![ep(0x01, 1, 294, 1)]),
+            iface(2, 0x01, 0x02, 0x00, vec![ep(0x82, 1, 294, 1)]),
+            iface(3, 0xff, 0x00, 0x00, vec![ep(0x83, 3, 4, 8)]),
+        ],
+        "1-3.1" => vec![
+            iface(0, 0x03, 0x01, 0x01, vec![ep(0x81, 3, 8, 10)]),
+            iface(1, 0x03, 0x00, 0x00, vec![ep(0x82, 3, 16, 10)]),
+        ],
+        "1-3.2" => vec![iface(0, 0x03, 0x01, 0x02, vec![ep(0x81, 3, 8, 8)])],
+        "2-1" => vec![iface(
+            0,
+            0x08,
+            0x06,
+            0x50,
+            vec![ep(0x81, 2, 1024, 0), ep(0x02, 2, 1024, 0)],
+        )],
+        "2-3" => vec![
+            iface(0, 0x0e, 0x01, 0x00, vec![ep(0x87, 3, 16, 8)]),
+            iface(1, 0x0e, 0x02, 0x00, vec![ep(0x81, 1, 3072, 1)]),
+            iface(2, 0x01, 0x01, 0x00, vec![]),
+            iface(3, 0x01, 0x02, 0x00, vec![ep(0x86, 1, 192, 4)]),
+        ],
+        _ => Vec::new(),
+    }
 }
 
 /// Numeric sort: "1-1.10" after "1-1.2", "usb2" after "usb1".
@@ -601,6 +735,7 @@ mod tests {
             iface_classes: ifaces.to_vec(),
             devnum: 0,
             max_power_ma: None,
+            interfaces: Vec::new(),
         }
     }
 
@@ -609,6 +744,33 @@ mod tests {
         assert_eq!(parse_max_power("500mA\n"), Some(500));
         assert_eq!(parse_max_power("0mA"), Some(0));
         assert_eq!(parse_max_power(""), None);
+    }
+
+    #[test]
+    fn parses_interfaces_and_endpoints() {
+        // config(9) + interface(9, mass-storage BOT) + endpoint(7, bulk IN 512)
+        #[rustfmt::skip]
+        let config = [
+            9, 2, 25, 0, 1, 1, 0, 0x80, 50,
+            9, 4, 0, 0, 1, 0x08, 0x06, 0x50, 0,
+            7, 5, 0x81, 0x02, 0x00, 0x02, 0,
+        ];
+        let ifaces = parse_interfaces(&config);
+        assert_eq!(ifaces.len(), 1);
+        let i = &ifaces[0];
+        assert_eq!((i.class, i.subclass, i.protocol), (0x08, 0x06, 0x50));
+        assert_eq!(i.endpoints.len(), 1);
+        let e = &i.endpoints[0];
+        assert_eq!(e.address, 0x81);
+        assert!(e.input);
+        assert_eq!(e.transfer, 2); // bulk
+        assert_eq!(e.max_packet, 512);
+
+        // Linux sysfs blob leads with an 18-byte device descriptor; skip it.
+        let mut sysfs = vec![18, 1];
+        sysfs.extend(std::iter::repeat_n(0, 16));
+        sysfs.extend_from_slice(&config);
+        assert_eq!(parse_interfaces(&sysfs), ifaces);
     }
 
     #[test]
