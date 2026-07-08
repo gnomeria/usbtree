@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.4](https://github.com/gnomeria/usbtree/compare/v0.0.3...v0.0.4) (2026-07-08)
+
+
+### Features
+
+* **ui:** distinct colors per USB speed tier ([#31](https://github.com/gnomeria/usbtree/issues/31)) ([7f7d123](https://github.com/gnomeria/usbtree/commit/7f7d12321e12a5cb8297c79d90cfd58fdd3104eb))
+
 ## [0.0.3](https://github.com/gnomeria/usbtree/compare/v0.0.2...v0.0.3) (2026-07-08)
 
 

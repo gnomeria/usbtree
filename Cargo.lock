@@ -1563,7 +1563,7 @@ dependencies = [
 
 [[package]]
 name = "usbtree"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "nusb",
  "ratatui",
