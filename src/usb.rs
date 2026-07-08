@@ -22,7 +22,8 @@ pub struct Device {
     /// bus device number, for matching usbmon traffic
     pub devnum: u8,
     /// `bMaxPower`: max current the device *requests* from the bus, in mA —
-    /// advertised, not measured draw. Linux-only (sysfs); None elsewhere.
+    /// advertised, not measured draw. Linux (sysfs) + macOS (config descriptor);
+    /// None on Windows.
     pub max_power_ma: Option<u16>,
 }
 
@@ -209,7 +210,9 @@ pub fn scan() -> Vec<Device> {
             devnum: d.device_address(),
             #[cfg(target_os = "linux")]
             max_power_ma: read_max_power(d.sysfs_path()),
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
+            max_power_ma: macos_max_power(&d),
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
             max_power_ma: None,
         });
     }
@@ -227,6 +230,38 @@ fn read_max_power(sysfs: &std::path::Path) -> Option<u16> {
 #[cfg(any(target_os = "linux", test))]
 fn parse_max_power(s: &str) -> Option<u16> {
     s.trim().trim_end_matches("mA").trim().parse().ok()
+}
+
+/// `bMaxPower` on macOS: no sysfs, so open the device (unprivileged — works
+/// even while mounted) and read its active config descriptor. USB spec: the raw
+/// byte is 2mA units, or 8mA for SuperSpeed. Same source as Linux sysfs, just
+/// reached over IOKit. Self-powered devices legitimately report 0.
+///
+/// Cached by locationID: the value never changes for a plugged device, so we
+/// open each one once instead of on every 1s rescan.
+// ponytail: cache is per-session, never evicted, and a transient open failure
+// sticks as None until replug (new locationID). Both fine at this scale —
+// upgrade to a TTL only if devices start flapping their descriptors.
+#[cfg(target_os = "macos")]
+fn macos_max_power(d: &nusb::DeviceInfo) -> Option<u16> {
+    static CACHE: OnceLock<std::sync::Mutex<HashMap<u32, Option<u16>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let loc = d.location_id();
+    if let Some(&v) = cache.lock().unwrap().get(&loc) {
+        return v;
+    }
+    let unit = match d.speed() {
+        Some(nusb::Speed::Super | nusb::Speed::SuperPlus) => 8,
+        _ => 2,
+    };
+    let v = d
+        .open()
+        .wait()
+        .ok()
+        .and_then(|dev| dev.active_configuration().ok().map(|c| u16::from(c.max_power())))
+        .map(|raw| raw * unit);
+    cache.lock().unwrap().insert(loc, v);
+    v
 }
 
 /// "001" (zero-padded on Linux) -> "1", keeps non-numeric ids as-is.

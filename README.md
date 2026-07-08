@@ -19,6 +19,7 @@ Cross-platform TUI for inspecting the USB device tree (Linux, macOS, Windows). E
 | Friendly names (`overrides.ids` + usb.ids)           |      ✅       |  ✅   |   ✅    |
 | Hot-plug watch + timestamped event log               |      ✅       |  ✅   |   ✅    |
 | Detail panel — sysfs path, vid:pid, serial, children |      ✅       |  ✅   |   ✅    |
+| Device power — advertised `bMaxPower`                |      ✅       |  ✅   |    —    |
 | Live activity sparklines — URBs/s (unprivileged)     |      ✅       |   —   |    —    |
 | Real bandwidth — bytes/s via usbmon (root)           |      ✅       |   —   |    —    |
 | Prebuilt binaries                                    | amd64 · arm64 | arm64 |  amd64  |
@@ -80,7 +81,7 @@ cargo install --git https://github.com/gnomeria/usbtree   # or clone + cargo bui
 - Hot-plug watch: plugged devices flash green, unplugged devices linger as red crossed-out ghosts for 30 s, and every event lands in a timestamped log panel
 - Live per-device activity (Linux): inline sparklines in the tree plus a bandwidth graph in the detail panel — URBs/s unprivileged, real bytes/s when usbmon is readable (see below)
 - Speed badges with tier glyphs: `▂` low/full, `▄` high (480M), `█` SuperSpeed+ (5G/10G)
-- Detail panel: sysfs path, vid:pid, vendor, class, speed, serial, connected children
+- Detail panel: sysfs path, vid:pid, vendor, class, speed, max power (advertised `bMaxPower`), serial, connected children
 - `usbtree --dump` prints the tree once to stdout (no TUI)
 
 ## Usage
