@@ -297,6 +297,59 @@ enum Focus {
     Events,
 }
 
+/// Live tree filter (opened with `/`). `editing` = keystrokes go to `query`;
+/// once committed (Enter) the filter stays applied while you navigate.
+struct Filter {
+    query: String,
+    editing: bool,
+}
+
+/// True if `d` matches the lowercased `q` on any human-facing field.
+fn device_matches(d: &Device, q: &str) -> bool {
+    d.name.to_lowercase().contains(q)
+        || d.label().to_lowercase().contains(q)
+        || d.vendor_name().to_lowercase().contains(q)
+        || d.class_name().to_lowercase().contains(q)
+        || format!("{:04x}:{:04x}", d.vid, d.pid).contains(q)
+}
+
+/// Keep every matched row plus its ancestor chain and full subtree, so matches
+/// stay anchored in the tree instead of floating parentless.
+fn visible_rows(rows: &[(usize, usize)], matched: &[bool]) -> Vec<(usize, usize)> {
+    let mut keep = vec![false; rows.len()];
+    for r in 0..rows.len() {
+        if !matched[r] {
+            continue;
+        }
+        keep[r] = true;
+        let depth = rows[r].0;
+        // ancestors: walk back, taking each row whose depth drops below the last
+        let mut d = depth;
+        for pr in (0..r).rev() {
+            let pd = rows[pr].0;
+            if pd < d {
+                keep[pr] = true;
+                d = pd;
+                if pd == 0 {
+                    break;
+                }
+            }
+        }
+        // subtree: following rows deeper than this one
+        for sr in (r + 1)..rows.len() {
+            if rows[sr].0 > depth {
+                keep[sr] = true;
+            } else {
+                break;
+            }
+        }
+    }
+    rows.iter()
+        .zip(keep)
+        .filter_map(|(&row, k)| k.then_some(row))
+        .collect()
+}
+
 /// Right-click copy menu. Items are (label, clipboard text, toast noun).
 struct ContextMenu {
     rect: Rect,
@@ -346,6 +399,8 @@ struct App {
     log_rect: Rect,
     /// open right-click copy menu, if any
     menu: Option<ContextMenu>,
+    /// live tree filter (`/`), if any
+    filter: Option<Filter>,
 }
 
 impl App {
@@ -398,6 +453,7 @@ impl App {
             tree_rect: Rect::default(),
             log_rect: Rect::default(),
             menu: None,
+            filter: None,
         }
     }
 
@@ -408,12 +464,21 @@ impl App {
             // hotplug events if latency matters
             if event::poll(RESCAN_INTERVAL.saturating_sub(self.last_scan.elapsed()))? {
                 match event::read()? {
+                    // typing into the `/` filter grabs keys before any binding
+                    Event::Key(key)
+                        if key.kind == KeyEventKind::Press
+                            && self.filter.as_ref().is_some_and(|f| f.editing) =>
+                    {
+                        self.filter_key(key.code)
+                    }
                     Event::Key(key) if key.kind == KeyEventKind::Press => {
                         // any keypress dismisses an open menu; Esc then does nothing else
                         let menu_was_open = self.menu.take().is_some();
                         match key.code {
                             KeyCode::Esc if menu_was_open => {}
+                            KeyCode::Esc if self.filter.is_some() => self.clear_filter(),
                             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                            KeyCode::Char('/') => self.open_filter(),
                             KeyCode::Tab | KeyCode::BackTab => self.toggle_focus(),
                             KeyCode::Down | KeyCode::Char('j') => self.nav(1),
                             KeyCode::Up | KeyCode::Char('k') => self.nav(-1),
@@ -464,6 +529,78 @@ impl App {
             Focus::Tree => Focus::Events,
             Focus::Events => Focus::Tree,
         });
+    }
+
+    /// Open (or re-open) the `/` filter for editing, keeping any prior query.
+    fn open_filter(&mut self) {
+        self.menu = None;
+        self.set_focus(Focus::Tree);
+        let query = self.filter.take().map(|f| f.query).unwrap_or_default();
+        self.filter = Some(Filter { query, editing: true });
+    }
+
+    /// Drop the filter and show the full tree again.
+    fn clear_filter(&mut self) {
+        self.filter = None;
+        self.rebuild_rows();
+    }
+
+    /// Handle a keystroke while typing in the filter box.
+    fn filter_key(&mut self, code: KeyCode) {
+        match code {
+            // arrows still navigate the live results without touching the query
+            KeyCode::Up => return self.nav(-1),
+            KeyCode::Down => return self.nav(1),
+            KeyCode::Char(c) => {
+                if let Some(f) = &mut self.filter {
+                    f.query.push(c)
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(f) = &mut self.filter {
+                    f.query.pop();
+                }
+            }
+            KeyCode::Enter => match &mut self.filter {
+                Some(f) if f.query.is_empty() => self.filter = None,
+                Some(f) => f.editing = false, // commit: keep filtering, leave input
+                None => {}
+            },
+            KeyCode::Esc => self.filter = None,
+            _ => return,
+        }
+        self.rebuild_rows();
+    }
+
+    /// Recompute the displayed rows (collapse + filter) and keep the selection
+    /// on the same device if it survived, else clamp to the top.
+    fn rebuild_rows(&mut self) {
+        let name = self
+            .list
+            .selected()
+            .and_then(|s| self.rows.get(s))
+            .map(|&(_, i)| self.render[i].name.clone());
+        self.rows = self.compute_rows();
+        let pos = name.and_then(|n| self.rows.iter().position(|&(_, i)| self.render[i].name == n));
+        self.list
+            .select((!self.rows.is_empty()).then(|| pos.unwrap_or(0)));
+    }
+
+    /// Flatten `render` under the current collapse set, then apply the filter.
+    // ponytail: filter only sees uncollapsed rows; expand to search hidden
+    // subtrees if that ever bites
+    fn compute_rows(&self) -> Vec<(usize, usize)> {
+        let rows = usb::flatten(&self.render, &self.collapsed);
+        let Some(f) = &self.filter else { return rows };
+        let q = f.query.to_lowercase();
+        if q.is_empty() {
+            return rows;
+        }
+        let matched: Vec<bool> = rows
+            .iter()
+            .map(|&(_, i)| device_matches(&self.render[i], &q))
+            .collect();
+        visible_rows(&rows, &matched)
     }
 
     /// Route a mouse event: right-click opens the copy menu, left-click selects
@@ -701,7 +838,7 @@ impl App {
         self.render = self.devices.clone();
         self.render
             .extend(self.ghosts.iter().map(|(d, _)| d.clone()));
-        self.rows = usb::flatten(&self.render, &self.collapsed);
+        self.rows = self.compute_rows();
         let sel = selected_name
             .and_then(|n| {
                 self.rows
@@ -749,7 +886,7 @@ impl App {
         } else {
             self.collapsed.insert(name.clone());
         }
-        self.rows = usb::flatten(&self.render, &self.collapsed);
+        self.rows = self.compute_rows();
         if let Some(pos) = self
             .rows
             .iter()
@@ -804,6 +941,7 @@ impl App {
                 ("↵", "toggle"),
                 ("h/l", "fold/unfold"),
                 ("g/G", "top/bottom"),
+                ("/", "filter"),
                 ("tab", "focus"),
                 ("y/Y", "yank"),
                 ("r", "rescan"),
@@ -884,6 +1022,36 @@ impl App {
     }
 
     fn draw_tree(&mut self, f: &mut Frame, area: Rect) {
+        // filter turns the pane title into the live search box + match count
+        let block = match &self.filter {
+            Some(flt) => {
+                let q = flt.query.to_lowercase();
+                let n = self
+                    .rows
+                    .iter()
+                    .filter(|&&(_, i)| device_matches(&self.render[i], &q))
+                    .count();
+                let title = Line::from(vec![
+                    " / ".fg(theme::ACCENT).bold(),
+                    format!("{}{}", flt.query, if flt.editing { "▏" } else { "" }).fg(theme::TEXT),
+                    format!("  {n} match{} ", if n == 1 { "" } else { "es" }).fg(theme::DIM),
+                ]);
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::new().fg(theme::BORDER))
+                    .title(title)
+                    .padding(Padding::horizontal(1))
+            }
+            None => pane("✦ tree"),
+        };
+        let block = focus_ring(block, self.focus == Focus::Tree);
+        if self.filter.is_some() && self.rows.is_empty() {
+            f.render_widget(
+                Paragraph::new("no matches".fg(theme::DIM).italic()).block(block),
+                area,
+            );
+            return;
+        }
         let rails = rails(&self.rows);
         let selected = self.list.selected();
         let items: Vec<ListItem> = self
@@ -1005,7 +1173,7 @@ impl App {
             .collect();
         let list = List::new(items)
             .style(Style::new().fg(theme::TEXT))
-            .block(focus_ring(pane("✦ tree"), self.focus == Focus::Tree))
+            .block(block)
             .scroll_padding(2)
             .highlight_style(Style::new().bg(theme::SEL_BG));
         f.render_stateful_widget(list, area, &mut self.list);
@@ -1125,6 +1293,20 @@ mod tests {
         assert_eq!(m.item_at(6, 9), None); // bottom border
         assert_eq!(m.item_at(5, 7), None); // left border
         assert_eq!(m.item_at(16, 7), None); // right border (x+width-1)
+    }
+
+    #[test]
+    fn filter_keeps_ancestors_and_subtree() {
+        // usb1(0) > 1-1(1), 1-2(1) > 1-2.1(2), 1-2.2(2)
+        let rows = vec![(0, 0), (1, 1), (1, 2), (2, 3), (2, 4)];
+        // match a leaf: keep it + its ancestor chain, nothing else
+        let m = vec![false, false, false, true, false];
+        assert_eq!(visible_rows(&rows, &m), vec![(0, 0), (1, 2), (2, 3)]);
+        // match a hub: keep ancestor + whole subtree
+        let m = vec![false, false, true, false, false];
+        assert_eq!(visible_rows(&rows, &m), vec![(0, 0), (1, 2), (2, 3), (2, 4)]);
+        // no match: empty
+        assert!(visible_rows(&rows, &[false; 5]).is_empty());
     }
 
     #[test]

@@ -43,5 +43,18 @@ Sleep 8s
 # webcam returns (t=20s)
 Sleep 5s
 
+# live filter: `/` opens the search box, type to narrow the tree, Esc clears.
+# static devices only (Logitech gear is always present), so loop phase is moot.
+Type "/"
+Sleep 800ms
+Type "logi"
+Sleep 2.5s
+Backspace 4
+Sleep 500ms
+Type "hub"
+Sleep 2.5s
+Escape
+Sleep 1s
+
 Hide
 Type "q"
