@@ -35,7 +35,7 @@ usbtree = rust TUI. show USB device tree live. ratatui draw, nusb scan. no root.
 - `ci.yml` — clippy + test + build, 3 OS, every push/PR.
 - `release.yml` — semver tag on main → binaries + checksums. guard: tag must be on main.
 - `release-please.yml` — version bookkeeping.
-- `pages.yml` — docs/ → github pages on main push.
+- `pages.yml` — docs/ → github pages, only on `docs/**` change (Actions build, not legacy branch build). code-only push = no rebuild.
 - `screenshots.yml` — src/ or tapes/ change on main → VHS re-render docs/screenshots, auto-commit. GITHUB_TOKEN push no retrigger, no loop.
 
 ## test fast
