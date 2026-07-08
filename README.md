@@ -107,6 +107,23 @@ The header shows which source is active:
 - **`◌ urb activity`** — unprivileged default: URB-count deltas from sysfs `urbnum`, shown as relative activity (URBs/s)
 - **`◉ usbmon bytes/s`** — real per-device bandwidth when `/sys/kernel/debug/usb/usbmon` is readable, i.e. running as root with the `usbmon` module loaded and debugfs mounted
 
+### Enabling `usbmon` bytes/s
+
+`sudo` alone is **not enough** — root gives access, but the `usbmon` kernel module must be loaded or `/sys/kernel/debug/usb/usbmon/0u` won't exist and usbtree silently falls back to URB activity. Load it, then run:
+
+```sh
+sudo modprobe usbmon
+sudo usbtree
+```
+
+Check it's loaded with `lsmod | grep usbmon`. To load it automatically on every boot:
+
+```sh
+echo usbmon | sudo tee /etc/modules-load.d/usbmon.conf
+```
+
+`usbmon` is a standard in-tree module on virtually every distro; if `modprobe` fails, your kernel needs `CONFIG_USB_MON` (built-in on mainstream kernels). debugfs is mounted at `/sys/kernel/debug` by default on systemd systems.
+
 On macOS and Windows the tree, details, and hot-plug log all work; **live activity sparklines are not available**. The header reads `◌ activity n/a on this platform`. There is no unprivileged per-device traffic counter on those systems — `urbnum`/`usbmon` are Linux-only, and `sudo` does not help. macOS IOKit only exposes an HID-specific report counter (keyboards/mice), which is too partial to be worth it, so per-device activity is **not implemented** there yet.
 
 ## How it works

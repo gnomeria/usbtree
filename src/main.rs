@@ -1010,13 +1010,11 @@ impl App {
             "  ·  ".fg(theme::FAINT),
             format!("up {:02}:{:02}", up / 60, up % 60).fg(theme::DIM),
             "  ·  ".fg(theme::FAINT),
-            if self.metrics.is_bytes() {
-                "◉ usbmon bytes/s".fg(theme::MINT)
-            } else if self.metrics.is_available() {
-                "◌ urb activity — sudo for bytes/s".fg(theme::DIM)
+            self.metrics.header_note().fg(if self.metrics.is_bytes() {
+                theme::MINT
             } else {
-                "◌ activity n/a on this platform".fg(theme::DIM)
-            },
+                theme::DIM
+            }),
         ]);
         f.render_widget(Paragraph::new(line), area);
     }

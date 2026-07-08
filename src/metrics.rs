@@ -14,10 +14,24 @@ use crate::usb::Device;
 #[cfg(target_os = "linux")]
 const USBMON: &str = "/sys/kernel/debug/usb/usbmon/0u";
 
+/// Why usbmon bytes/s isn't active, distinguished by the `open` error kind so
+/// the header can tell the user the *actual* fix (module vs root).
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+pub enum NoBytes {
+    /// usbmon file missing (`ENOENT`): module not loaded or debugfs unmounted.
+    NeedModule,
+    /// present but unreadable (`EACCES`): not running as root.
+    NeedRoot,
+}
+
 pub enum Metrics {
     /// URBs/s per device from `/sys/bus/usb/devices/*/urbnum`.
     #[cfg(target_os = "linux")]
-    Urb { prev: HashMap<String, u64> },
+    Urb {
+        prev: HashMap<String, u64>,
+        why: NoBytes,
+    },
     /// Bytes/s per (bus, devnum) accumulated by a usbmon reader thread.
     #[cfg(target_os = "linux")]
     UsbMon { bytes: Arc<Mutex<HashMap<(u16, u16), u64>>> },
@@ -46,7 +60,17 @@ impl Metrics {
                 });
                 Metrics::UsbMon { bytes }
             }
-            Err(_) => Metrics::Urb { prev: HashMap::new() },
+            Err(e) => {
+                let why = if e.kind() == std::io::ErrorKind::NotFound {
+                    NoBytes::NeedModule
+                } else {
+                    NoBytes::NeedRoot
+                };
+                Metrics::Urb {
+                    prev: HashMap::new(),
+                    why,
+                }
+            }
         }
     }
 
@@ -72,15 +96,20 @@ impl Metrics {
         }
     }
 
-    /// False when this platform publishes no per-device activity at all.
-    pub fn is_available(&self) -> bool {
-        #[cfg(target_os = "linux")]
-        {
-            true
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            !matches!(self, Metrics::None)
+    /// Header indicator text: the active source, or — when on URB fallback —
+    /// the specific fix to unlock bytes/s (`modprobe usbmon` vs `sudo`).
+    pub fn header_note(&self) -> &'static str {
+        match self {
+            #[cfg(target_os = "linux")]
+            Metrics::UsbMon { .. } => "◉ usbmon bytes/s",
+            Metrics::Demo { .. } => "◉ usbmon bytes/s",
+            #[cfg(target_os = "linux")]
+            Metrics::Urb { why, .. } => match why {
+                NoBytes::NeedModule => "◌ urb activity — modprobe usbmon for bytes/s",
+                NoBytes::NeedRoot => "◌ urb activity — sudo + modprobe usbmon for bytes/s",
+            },
+            #[cfg(not(target_os = "linux"))]
+            Metrics::None => "◌ activity n/a on this platform",
         }
     }
 
@@ -88,7 +117,7 @@ impl Metrics {
     pub fn sample(&mut self, devices: &[Device]) -> HashMap<String, u64> {
         match self {
             #[cfg(target_os = "linux")]
-            Metrics::Urb { prev } => {
+            Metrics::Urb { prev, .. } => {
                 let mut out = HashMap::new();
                 let mut cur = HashMap::new();
                 for d in devices {
