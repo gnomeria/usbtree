@@ -141,4 +141,30 @@ case ":$PATH:" in
     *) warn "$INSTALL_DIR is not in your PATH — add: export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
 esac
 
+# Real bytes/s (usbmon) needs root, Linux only. sudo resolves commands against
+# secure_path in /etc/sudoers, which excludes ~/.local/bin — so `sudo usbtree`
+# fails with "command not found" when we install there. /usr/local/bin *is* in
+# secure_path; offer an opt-in symlink so plain `sudo usbtree` works.
+if [ "$OS" = linux ] && [ "$INSTALL_DIR" != /usr/local/bin ]; then
+    DO_SYMLINK=""
+    if [ "${USBTREE_SUDO_SYMLINK:-}" = 1 ]; then
+        DO_SYMLINK=1                       # non-interactive opt-in (CI, curl|sh with no tty)
+    elif [ -r /dev/tty ]; then
+        # Ask on the terminal directly — stdin is the piped script under curl|sh,
+        # so read from /dev/tty (same trick sudo uses for the password prompt).
+        printf '%s' "${DIM}·${RESET} Real bytes/s (usbmon) needs root. Symlink into /usr/local/bin so ${BOLD}sudo $BIN${RESET} works? [y/N] "
+        read -r ANS </dev/tty || ANS=""
+        case "$ANS" in [yY]*) DO_SYMLINK=1 ;; esac
+    fi
+    if [ -n "$DO_SYMLINK" ]; then
+        if sudo ln -sf "$INSTALL_DIR/$BIN" "/usr/local/bin/$BIN"; then
+            ok "symlinked /usr/local/bin/$BIN — ${BOLD}sudo $BIN${RESET} now works"
+        else
+            warn "couldn't create /usr/local/bin/$BIN symlink"
+        fi
+    else
+        info "for real bytes/s (usbmon, needs root): ${BOLD}sudo \"\$(command -v $BIN)\"${RESET}"
+    fi
+fi
+
 printf '\n%s\n' "Run ${BOLD}usbtree${RESET} for the TUI, ${BOLD}usbtree --dump${RESET} to print the tree once, or ${BOLD}usbtree --updatelist${RESET} to refresh the usb.ids database."
