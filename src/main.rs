@@ -6,12 +6,15 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+    MouseEvent, MouseEventKind,
+};
+use ratatui::layout::{Alignment, Constraint, Layout, Margin, Position, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, List, ListItem, ListState, Padding, Paragraph, Sparkline,
+    Block, BorderType, Clear, List, ListItem, ListState, Padding, Paragraph, Sparkline,
 };
 
 use metrics::Metrics;
@@ -187,6 +190,20 @@ fn pane(title: &str) -> Block<'_> {
         .padding(Padding::horizontal(1))
 }
 
+/// Map a screen cell to a list row inside a bordered pane, given its scroll
+/// `offset` and item `len`. `None` if the cell is on a border or past the list.
+fn row_at(pane: Rect, offset: usize, len: usize, col: u16, row: u16) -> Option<usize> {
+    if !pane.contains(Position::new(col, row)) {
+        return None;
+    }
+    let top = pane.y + 1; // first content row, below the top border
+    if row < top || row >= pane.bottom() - 1 {
+        return None; // top / bottom border
+    }
+    let idx = offset + (row - top) as usize;
+    (idx < len).then_some(idx)
+}
+
 /// Accent the border of the pane that currently holds keyboard focus.
 fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
     if focused {
@@ -216,7 +233,12 @@ fn main() -> std::io::Result<()> {
         return Ok(());
     }
     let mut terminal = ratatui::init();
+    // mouse capture trades the terminal's native text selection for click/scroll/
+    // right-click; we hand back copy via OSC 52 (yank + right-click menu).
+    // ponytail: most terminals fall back to shift-drag for native selection
+    let _ = ratatui::crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     let result = App::new(demo).run(&mut terminal);
+    let _ = ratatui::crossterm::execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -275,6 +297,24 @@ enum Focus {
     Events,
 }
 
+/// Right-click copy menu. Items are (label, clipboard text, toast noun).
+struct ContextMenu {
+    rect: Rect,
+    items: Vec<(String, String, String)>,
+    hover: usize,
+}
+
+impl ContextMenu {
+    /// Which item (if any) sits under the given screen cell.
+    fn item_at(&self, col: u16, row: u16) -> Option<usize> {
+        if col <= self.rect.x || col >= self.rect.right() - 1 {
+            return None; // outside content columns (borders)
+        }
+        let i = row.checked_sub(self.rect.y + 1)? as usize;
+        (i < self.items.len()).then_some(i)
+    }
+}
+
 struct App {
     /// scripted fake devices + traffic (`--demo`)
     demo: bool,
@@ -300,6 +340,12 @@ struct App {
     update: Option<String>,
     /// one-shot channel carrying the newer version from the check thread
     update_rx: Option<Receiver<String>>,
+    /// full frame + pane rects from the last draw, for mapping mouse cells to rows
+    screen: Rect,
+    tree_rect: Rect,
+    log_rect: Rect,
+    /// open right-click copy menu, if any
+    menu: Option<ContextMenu>,
 }
 
 impl App {
@@ -348,6 +394,10 @@ impl App {
             metrics,
             rates: HashMap::new(),
             toast: None,
+            screen: Rect::default(),
+            tree_rect: Rect::default(),
+            log_rect: Rect::default(),
+            menu: None,
         }
     }
 
@@ -356,23 +406,29 @@ impl App {
             terminal.draw(|f| self.draw(f))?;
             // ponytail: 1s enumeration poll — switch to nusb::watch_devices()
             // hotplug events if latency matters
-            if event::poll(RESCAN_INTERVAL.saturating_sub(self.last_scan.elapsed()))?
-                && let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-            {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Tab | KeyCode::BackTab => self.toggle_focus(),
-                    KeyCode::Down | KeyCode::Char('j') => self.nav(1),
-                    KeyCode::Up | KeyCode::Char('k') => self.nav(-1),
-                    KeyCode::Char('g') | KeyCode::Home => self.nav_to(0),
-                    KeyCode::Char('G') | KeyCode::End => self.nav_to(isize::MAX),
-                    KeyCode::Enter | KeyCode::Char(' ') => self.fold(None),
-                    KeyCode::Left | KeyCode::Char('h') => self.fold(Some(true)),
-                    KeyCode::Right | KeyCode::Char('l') => self.fold(Some(false)),
-                    KeyCode::Char('r') => self.rescan(),
-                    KeyCode::Char('y') => self.yank(false),
-                    KeyCode::Char('Y') => self.yank(true),
+            if event::poll(RESCAN_INTERVAL.saturating_sub(self.last_scan.elapsed()))? {
+                match event::read()? {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        // any keypress dismisses an open menu; Esc then does nothing else
+                        let menu_was_open = self.menu.take().is_some();
+                        match key.code {
+                            KeyCode::Esc if menu_was_open => {}
+                            KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                            KeyCode::Tab | KeyCode::BackTab => self.toggle_focus(),
+                            KeyCode::Down | KeyCode::Char('j') => self.nav(1),
+                            KeyCode::Up | KeyCode::Char('k') => self.nav(-1),
+                            KeyCode::Char('g') | KeyCode::Home => self.nav_to(0),
+                            KeyCode::Char('G') | KeyCode::End => self.nav_to(isize::MAX),
+                            KeyCode::Enter | KeyCode::Char(' ') => self.fold(None),
+                            KeyCode::Left | KeyCode::Char('h') => self.fold(Some(true)),
+                            KeyCode::Right | KeyCode::Char('l') => self.fold(Some(false)),
+                            KeyCode::Char('r') => self.rescan(),
+                            KeyCode::Char('y') => self.yank(false),
+                            KeyCode::Char('Y') => self.yank(true),
+                            _ => {}
+                        }
+                    }
+                    Event::Mouse(m) => self.on_mouse(m),
                     _ => {}
                 }
             }
@@ -388,21 +444,147 @@ impl App {
         }
     }
 
-    /// Switch keyboard focus between the tree and events panes. Entering the
-    /// events pane parks the cursor on the newest entry; leaving it clears the
-    /// selection so the pane snaps back to newest.
-    fn toggle_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Tree => Focus::Events,
-            Focus::Events => Focus::Tree,
-        };
-        match self.focus {
+    /// Move keyboard focus to `f`. Entering the events pane parks the cursor on
+    /// the newest entry; leaving it clears the selection so the pane snaps back
+    /// to newest.
+    fn set_focus(&mut self, f: Focus) {
+        self.focus = f;
+        match f {
             Focus::Events if self.log_state.selected().is_none() && !self.log.is_empty() => {
                 self.log_state.select(Some(0))
             }
             Focus::Tree => self.log_state.select(None),
             _ => {}
         }
+    }
+
+    /// Toggle keyboard focus between the tree and events panes.
+    fn toggle_focus(&mut self) {
+        self.set_focus(match self.focus {
+            Focus::Tree => Focus::Events,
+            Focus::Events => Focus::Tree,
+        });
+    }
+
+    /// Route a mouse event: right-click opens the copy menu, left-click selects
+    /// or fires a menu item, wheel scrolls the pane under the pointer.
+    fn on_mouse(&mut self, m: MouseEvent) {
+        match m.kind {
+            MouseEventKind::Down(MouseButton::Right) => self.open_menu(m.column, m.row),
+            MouseEventKind::Down(MouseButton::Left) => self.click(m.column, m.row),
+            MouseEventKind::ScrollDown => self.scroll_at(m.column, m.row, 1),
+            MouseEventKind::ScrollUp => self.scroll_at(m.column, m.row, -1),
+            MouseEventKind::Moved => {
+                if let Some(menu) = &mut self.menu
+                    && let Some(i) = menu.item_at(m.column, m.row)
+                {
+                    menu.hover = i;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Tree row under a screen cell, accounting for the border and scroll offset.
+    fn tree_row_at(&self, col: u16, row: u16) -> Option<usize> {
+        row_at(self.tree_rect, self.list.offset(), self.rows.len(), col, row)
+    }
+
+    /// Events row under a screen cell.
+    fn log_row_at(&self, col: u16, row: u16) -> Option<usize> {
+        row_at(self.log_rect, self.log_state.offset(), self.log.len(), col, row)
+    }
+
+    /// Left-click: run a menu item if the menu is open (else dismiss it), or
+    /// select the clicked row in whichever pane was hit.
+    fn click(&mut self, col: u16, row: u16) {
+        if let Some(menu) = self.menu.take() {
+            if let Some(i) = menu.item_at(col, row) {
+                let (_, text, what) = &menu.items[i];
+                self.copy(&text.clone(), &what.clone());
+            }
+            return; // click outside the menu just dismisses it
+        }
+        if let Some(idx) = self.tree_row_at(col, row) {
+            self.set_focus(Focus::Tree);
+            self.list.select(Some(idx));
+        } else if let Some(idx) = self.log_row_at(col, row) {
+            self.set_focus(Focus::Events);
+            self.log_state.select(Some(idx));
+        }
+    }
+
+    /// Wheel scroll moves the selection in whichever pane the pointer is over.
+    fn scroll_at(&mut self, col: u16, row: u16, delta: isize) {
+        self.menu = None;
+        let pos = Position::new(col, row);
+        let target = if self.tree_rect.contains(pos) {
+            Focus::Tree
+        } else if self.log_rect.contains(pos) {
+            Focus::Events
+        } else {
+            return;
+        };
+        self.set_focus(target);
+        self.nav(delta);
+    }
+
+    /// Open the right-click copy menu for the row under the cursor, selecting it
+    /// first so the detail pane follows. No-op on empty space.
+    fn open_menu(&mut self, col: u16, row: u16) {
+        let items = if let Some(idx) = self.tree_row_at(col, row) {
+            self.set_focus(Focus::Tree);
+            self.list.select(Some(idx));
+            let (_, i) = self.rows[idx];
+            let d = &self.render[i];
+            let id = format!("{:04x}:{:04x}", d.vid, d.pid);
+            let mut items: Vec<(String, String, String)> = vec![
+                ("vid:pid".into(), id.clone(), id.clone()),
+                ("name".into(), d.label(), "name".into()),
+                ("sysfs path".into(), d.name.clone(), "sysfs path".into()),
+            ];
+            if let Some(s) = &d.serial {
+                items.push(("serial".into(), s.clone(), "serial".into()));
+            }
+            let mut block = format!("{}\n{id}\n{}", d.label(), d.name);
+            if let Some(s) = &d.serial {
+                block.push_str(&format!("\n{s}"));
+            }
+            items.push(("full details".into(), block, format!("{} details", d.name)));
+            items
+        } else if let Some(idx) = self.log_row_at(col, row) {
+            self.set_focus(Focus::Events);
+            self.log_state.select(Some(idx));
+            let ev = &self.log[idx];
+            vec![
+                ("id".into(), ev.id.clone(), "event id".into()),
+                ("name".into(), ev.name.clone(), "event name".into()),
+            ]
+        } else {
+            self.menu = None;
+            return;
+        };
+        // size to the widest label, then clamp so the box stays on screen
+        let w = items.iter().map(|(l, _, _)| l.chars().count()).max().unwrap_or(4) as u16 + 4;
+        let h = items.len() as u16 + 2;
+        let x = col.min(self.screen.right().saturating_sub(w));
+        let y = row.min(self.screen.bottom().saturating_sub(h));
+        self.menu = Some(ContextMenu {
+            rect: Rect { x, y, width: w, height: h },
+            items,
+            hover: 0,
+        });
+    }
+
+    /// Copy `text` to the clipboard and raise a toast naming `what`.
+    fn copy(&mut self, text: &str, what: &str) {
+        self.toast = Some((
+            match clip(text) {
+                Ok(()) => format!("copied {what}"),
+                Err(e) => format!("copy failed: {e}"),
+            },
+            Instant::now(),
+        ));
     }
 
     /// Move the selection in the focused pane. Selection drives ratatui's List
@@ -445,13 +627,7 @@ impl App {
             } else {
                 (ev.id.clone(), "event id")
             };
-            self.toast = Some((
-                match clip(&text) {
-                    Ok(()) => format!("copied {what}"),
-                    Err(e) => format!("copy failed: {e}"),
-                },
-                Instant::now(),
-            ));
+            self.copy(&text, what);
             return;
         }
         let Some(&(_, i)) = self.list.selected().and_then(|s| self.rows.get(s)) else {
@@ -468,13 +644,7 @@ impl App {
         } else {
             (id.clone(), id)
         };
-        self.toast = Some((
-            match clip(&text) {
-                Ok(()) => format!("copied {what}"),
-                Err(e) => format!("copy failed: {e}"),
-            },
-            Instant::now(),
-        ));
+        self.copy(&text, &what);
     }
 
     fn rescan(&mut self) {
@@ -600,6 +770,10 @@ impl App {
         let [tree_area, detail_area] =
             Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
                 .areas(main);
+        // stash geometry so mouse cells can be mapped back to rows
+        self.screen = f.area();
+        self.tree_rect = tree_area;
+        self.log_rect = log_area;
 
         self.draw_header(f, header);
         self.draw_tree(f, tree_area);
@@ -653,6 +827,32 @@ impl App {
             None => Line::from(format!("v{ver} ").fg(theme::FAINT)),
         };
         f.render_widget(Paragraph::new(right).alignment(Alignment::Right), help);
+
+        // right-click copy menu floats on top of everything
+        if let Some(menu) = &self.menu {
+            f.render_widget(Clear, menu.rect);
+            let items: Vec<ListItem> = menu
+                .items
+                .iter()
+                .enumerate()
+                .map(|(i, (label, _, _))| {
+                    let item = ListItem::new(Line::from(format!(" {label}")));
+                    if i == menu.hover {
+                        item.style(Style::new().bg(theme::SEL_BG).fg(theme::ACCENT))
+                    } else {
+                        item
+                    }
+                })
+                .collect();
+            let block = Block::bordered()
+                .border_type(BorderType::Rounded)
+                .border_style(Style::new().fg(theme::ACCENT))
+                .title(Line::from(" copy ".fg(theme::ACCENT).bold()));
+            f.render_widget(
+                List::new(items).style(Style::new().fg(theme::TEXT)).block(block),
+                menu.rect,
+            );
+        }
     }
 
     fn draw_header(&self, f: &mut Frame, area: Rect) {
@@ -910,7 +1110,22 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::base64;
+    use super::*;
+
+    #[test]
+    fn menu_hit_test_excludes_borders() {
+        let m = ContextMenu {
+            rect: Rect::new(5, 5, 12, 5), // 3 content rows: y = 6,7,8
+            items: vec![(String::new(), String::new(), String::new()); 3],
+            hover: 0,
+        };
+        assert_eq!(m.item_at(6, 6), Some(0)); // first content row
+        assert_eq!(m.item_at(6, 8), Some(2)); // last content row
+        assert_eq!(m.item_at(6, 5), None); // top border
+        assert_eq!(m.item_at(6, 9), None); // bottom border
+        assert_eq!(m.item_at(5, 7), None); // left border
+        assert_eq!(m.item_at(16, 7), None); // right border (x+width-1)
+    }
 
     #[test]
     fn base64_matches_rfc_vectors() {
