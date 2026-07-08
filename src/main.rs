@@ -68,9 +68,9 @@ fn speed_badge(speed: &str) -> Option<(&'static str, String, Color)> {
     let (glyph, color) = if mbps >= 5000.0 {
         ("█", theme::ACCENT)
     } else if mbps >= 480.0 {
-        ("▄", theme::DIM)
+        ("▄", theme::SKY)
     } else {
-        ("▂", theme::FAINT)
+        ("▂", theme::DIM)
     };
     let human = if mbps >= 1000.0 {
         format!("{}G", mbps / 1000.0)
