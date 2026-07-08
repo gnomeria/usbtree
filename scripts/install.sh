@@ -77,7 +77,7 @@ info "installing $BOLD$BIN v$VERSION$RESET ($OS-$ARCH)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
-info "downloading $ASSET…"
+info "downloading ${ASSET}…"
 fetch_to "$BASE_URL/$ASSET" "$TMP/$ASSET" \
     || die "download failed: $BASE_URL/$ASSET"
 
