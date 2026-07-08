@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.3](https://github.com/gnomeria/usbtree/compare/v0.0.2...v0.0.3) (2026-07-08)
+
+
+### Features
+
+* **install:** symlink prompt for sudo usbtree, fix PATH trap docs ([#25](https://github.com/gnomeria/usbtree/issues/25)) ([ccd1b5d](https://github.com/gnomeria/usbtree/commit/ccd1b5d6816a52767147b1036e72b927fa3c3da9))
+* **tui:** name modprobe usbmon in header + docs for bytes/s ([#22](https://github.com/gnomeria/usbtree/issues/22)) ([f0991a7](https://github.com/gnomeria/usbtree/commit/f0991a79265717e2cba2f0ca6796869aaca344c3))
+* **tui:** show device max power (bMaxPower) in detail pane ([#20](https://github.com/gnomeria/usbtree/issues/20)) ([9fcfe3a](https://github.com/gnomeria/usbtree/commit/9fcfe3aed566f95f8bee2375e58497c3641fae35))
+* **usb:** read bMaxPower on macOS via config descriptor ([#26](https://github.com/gnomeria/usbtree/issues/26)) ([5717249](https://github.com/gnomeria/usbtree/commit/5717249d7f095af76fe7617f847f64a71a41abbf))
+
+
+### Documentation
+
+* add cross-platform feature matrix to readme and site ([#23](https://github.com/gnomeria/usbtree/issues/23)) ([81c6ad7](https://github.com/gnomeria/usbtree/commit/81c6ad71e5d4fd51ae9dcbb940fdf74d1ae09a06))
+* refresh demo screenshots ([#27](https://github.com/gnomeria/usbtree/issues/27)) ([f744923](https://github.com/gnomeria/usbtree/commit/f744923de549beb566e41c757a2cee692e59f847))
+
 ## [0.0.2](https://github.com/gnomeria/usbtree/compare/v0.0.1...v0.0.2) (2026-07-08)
 
 
