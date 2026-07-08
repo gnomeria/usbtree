@@ -256,6 +256,45 @@ fn overrides_path() -> Option<PathBuf> {
     Some(config_dir()?.join("overrides.ids"))
 }
 
+// ---- release update check ----
+
+/// Newest release tag on GitHub, without the leading `v` (e.g. `0.0.2`), or
+/// None on any failure (offline, no curl, no releases yet). We hit the
+/// `releases/latest` redirect and read the final URL's tag — no JSON parse,
+/// no API token, no User-Agent quirks.
+pub fn latest_release() -> Option<String> {
+    let url = format!("https://github.com/{}/releases/latest", env!("CARGO_PKG_REPOSITORY").rsplit("github.com/").next()?);
+    let out = std::process::Command::new("curl")
+        .args(["-fsSLI", "--max-time", "5", "-o", "/dev/null", "-w", "%{url_effective}"])
+        .arg(&url)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let final_url = String::from_utf8_lossy(&out.stdout);
+    let tag = final_url.trim().rsplit('/').next()?;
+    let ver = tag.strip_prefix('v').unwrap_or(tag);
+    // when no release exists the redirect lands on `.../releases`, not a tag
+    ver.chars().next()?.is_ascii_digit().then(|| ver.to_string())
+}
+
+/// True if release `latest` is strictly newer than `current` by numeric
+/// major.minor.patch. Non-numeric or missing parts count as 0.
+pub fn is_newer(latest: &str, current: &str) -> bool {
+    let parts = |s: &str| -> Vec<u64> {
+        s.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+    };
+    let (l, c) = (parts(latest), parts(current));
+    for i in 0..l.len().max(c.len()) {
+        let (a, b) = (l.get(i).copied().unwrap_or(0), c.get(i).copied().unwrap_or(0));
+        if a != b {
+            return a > b;
+        }
+    }
+    false
+}
+
 // ---- downloadable usb.ids (usbtree --updatelist) ----
 
 const USB_IDS_URL: &str = "https://raw.githubusercontent.com/systemd/hwdata/main/usb.ids";
@@ -577,5 +616,15 @@ C 03  Human Interface Device\n\
         let (added, removed) = diff(&after, &before);
         assert_eq!(removed.len(), 1);
         assert!(added.is_empty());
+    }
+
+    #[test]
+    fn version_compare() {
+        assert!(is_newer("0.0.2", "0.0.1"));
+        assert!(is_newer("0.1.0", "0.0.9"));
+        assert!(is_newer("1.0.0", "0.9.9"));
+        assert!(!is_newer("0.0.1", "0.0.1"));
+        assert!(!is_newer("0.0.1", "0.0.2"));
+        assert!(is_newer("0.0.2", "0.0.1")); // shorter/longer parts default to 0
     }
 }
