@@ -101,6 +101,8 @@ impl Device {
     }
 
     /// Bus number parsed from the sysfs name: "usb1" or "1-1.4" -> 1.
+    /// Only the Linux usbmon path keys on it; dead elsewhere.
+    #[cfg(target_os = "linux")]
     pub fn busnum(&self) -> Option<u16> {
         match self.name.strip_prefix("usb") {
             Some(b) => b.parse().ok(),

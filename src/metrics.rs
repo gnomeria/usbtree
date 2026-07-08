@@ -2,24 +2,34 @@
 //! `urbnum`. When usbmon is readable (root + debugfs): real bytes/s.
 
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::io::{BufRead, BufReader};
+#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
 
 use crate::usb::Device;
 
+#[cfg(target_os = "linux")]
 const USBMON: &str = "/sys/kernel/debug/usb/usbmon/0u";
 
 pub enum Metrics {
     /// URBs/s per device from `/sys/bus/usb/devices/*/urbnum`.
+    #[cfg(target_os = "linux")]
     Urb { prev: HashMap<String, u64> },
     /// Bytes/s per (bus, devnum) accumulated by a usbmon reader thread.
+    #[cfg(target_os = "linux")]
     UsbMon { bytes: Arc<Mutex<HashMap<(u16, u16), u64>>> },
     /// Synthetic bytes/s for `--demo`, deterministic per device and tick.
     Demo { tick: u64 },
+    /// No per-device activity source (macOS/Windows: nothing published
+    /// unprivileged — the sole IOKit counter is HID-only, not worth it).
+    None,
 }
 
 impl Metrics {
+    #[cfg(target_os = "linux")]
     pub fn new() -> Self {
         match fs::File::open(USBMON) {
             Ok(f) => {
@@ -39,18 +49,37 @@ impl Metrics {
         }
     }
 
+    // ponytail: macOS/Windows have no unprivileged per-device traffic counter
+    // (urbnum is Linux sysfs; IOKit only exposes HID InputReportCount). Show
+    // the tree, no rates. Upgrade path: HID-only blink via ioreg if wanted.
+    #[cfg(not(target_os = "linux"))]
+    pub fn new() -> Self {
+        Metrics::None
+    }
+
     pub fn demo() -> Self {
         Metrics::Demo { tick: 0 }
     }
 
     /// True when rates are real bytes (usbmon), not URB counts.
     pub fn is_bytes(&self) -> bool {
-        matches!(self, Metrics::UsbMon { .. } | Metrics::Demo { .. })
+        match self {
+            #[cfg(target_os = "linux")]
+            Metrics::UsbMon { .. } => true,
+            Metrics::Demo { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// False when this platform publishes no per-device activity at all.
+    pub fn is_available(&self) -> bool {
+        !matches!(self, Metrics::None)
     }
 
     /// Per-device rate accumulated since the last call, keyed by sysfs name.
     pub fn sample(&mut self, devices: &[Device]) -> HashMap<String, u64> {
         match self {
+            #[cfg(target_os = "linux")]
             Metrics::Urb { prev } => {
                 let mut out = HashMap::new();
                 let mut cur = HashMap::new();
@@ -64,6 +93,7 @@ impl Metrics {
                 *prev = cur;
                 out
             }
+            #[cfg(target_os = "linux")]
             Metrics::UsbMon { bytes } => {
                 let drained = std::mem::take(&mut *bytes.lock().unwrap());
                 devices
@@ -83,6 +113,7 @@ impl Metrics {
                     .filter(|&(_, r)| r > 0)
                     .collect()
             }
+            Metrics::None => HashMap::new(),
         }
     }
 }
@@ -107,6 +138,7 @@ fn demo_rate(d: &Device, t: u64) -> u64 {
     (base * (0.6 + 0.4 * wave)) as u64
 }
 
+#[cfg(target_os = "linux")]
 fn read_u64(path: &str) -> Option<u64> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
@@ -116,6 +148,7 @@ fn read_u64(path: &str) -> Option<u64> {
 /// Counts completed IN and submitted OUT transfers (usbtop's method).
 // ponytail: control transfers with inline setup ('s' status word) are
 // skipped — a few bytes each, not worth the extra field shuffling
+#[cfg(any(target_os = "linux", test))]
 fn parse_usbmon(line: &str) -> Option<((u16, u16), u64)> {
     let mut f = line.split_whitespace();
     let (_tag, _ts) = (f.next()?, f.next()?);

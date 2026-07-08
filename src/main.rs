@@ -4,6 +4,7 @@ mod usb;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
@@ -11,7 +12,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, List, ListItem, ListState, Padding, Paragraph, Sparkline,
 };
-use ratatui::Frame;
 
 use metrics::Metrics;
 use usb::Device;
@@ -250,7 +250,11 @@ impl App {
         if !rows.is_empty() {
             list.select(Some(0));
         }
-        let mut metrics = if demo { Metrics::demo() } else { Metrics::new() };
+        let mut metrics = if demo {
+            Metrics::demo()
+        } else {
+            Metrics::new()
+        };
         metrics.sample(&devices); // baseline so the first tick is a delta, not a total
         Self {
             demo,
@@ -347,7 +351,8 @@ impl App {
                 h.remove(0);
             }
         }
-        self.rates.retain(|k, _| self.devices.iter().any(|d| &d.name == k));
+        self.rates
+            .retain(|k, _| self.devices.iter().any(|d| &d.name == k));
 
         // keep selection on the same device across rescans
         let selected_name = self
@@ -356,10 +361,15 @@ impl App {
             .and_then(|s| self.rows.get(s))
             .map(|&(_, i)| self.render[i].name.clone());
         self.render = self.devices.clone();
-        self.render.extend(self.ghosts.iter().map(|(d, _)| d.clone()));
+        self.render
+            .extend(self.ghosts.iter().map(|(d, _)| d.clone()));
         self.rows = usb::flatten(&self.render, &self.collapsed);
         let sel = selected_name
-            .and_then(|n| self.rows.iter().position(|&(_, i)| self.render[i].name == n))
+            .and_then(|n| {
+                self.rows
+                    .iter()
+                    .position(|&(_, i)| self.render[i].name == n)
+            })
             .unwrap_or(0);
         if !self.rows.is_empty() {
             self.list.select(Some(sel));
@@ -402,7 +412,11 @@ impl App {
             self.collapsed.insert(name.clone());
         }
         self.rows = usb::flatten(&self.render, &self.collapsed);
-        if let Some(pos) = self.rows.iter().position(|&(_, j)| self.render[j].name == name) {
+        if let Some(pos) = self
+            .rows
+            .iter()
+            .position(|&(_, j)| self.render[j].name == name)
+        {
             self.list.select(Some(pos));
         }
     }
@@ -416,7 +430,7 @@ impl App {
         ])
         .areas(f.area().inner(Margin::new(1, 0)));
         let [tree_area, detail_area] =
-            Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
+            Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
                 .areas(main);
 
         self.draw_header(f, header);
@@ -444,7 +458,10 @@ impl App {
         let buses = self.devices.iter().filter(|d| d.is_root_hub()).count();
         let up = self.started.elapsed().as_secs();
         let line = Line::from(vec![
-            Span::styled(" usbtree ", Style::new().bg(theme::PILL).fg(theme::PILL_FG).bold()),
+            Span::styled(
+                " usbtree ",
+                Style::new().bg(theme::PILL).fg(theme::PILL_FG).bold(),
+            ),
             Span::raw("  "),
             self.devices.len().to_string().fg(theme::TEXT).bold(),
             " devices".fg(theme::DIM),
@@ -456,8 +473,10 @@ impl App {
             "  ·  ".fg(theme::FAINT),
             if self.metrics.is_bytes() {
                 "◉ usbmon bytes/s".fg(theme::MINT)
-            } else {
+            } else if self.metrics.is_available() {
                 "◌ urb activity — sudo for bytes/s".fg(theme::DIM)
+            } else {
+                "◌ activity n/a on this platform".fg(theme::DIM)
             },
         ]);
         f.render_widget(Paragraph::new(line), area);
@@ -490,7 +509,9 @@ impl App {
                     // fixed-width class gutter: aligned column, easy to scan
                     Span::styled(
                         format!(" {:<8.8} ", d.class_name()),
-                        Style::new().fg(fade(class_color(d.effective_class()))).bg(theme::SURFACE),
+                        Style::new()
+                            .fg(fade(class_color(d.effective_class())))
+                            .bg(theme::SURFACE),
                     ),
                     Span::raw(" "),
                     rails[row].clone().fg(theme::FAINT),
@@ -507,7 +528,11 @@ impl App {
 
                 spans.push(format!("{:<8}", d.name).fg(fade(theme::DIM)));
                 spans.push(Span::raw(format!(" {} ", d.icon())));
-                let label_color = fade(if d.is_root_hub() { theme::ACCENT } else { theme::TEXT });
+                let label_color = fade(if d.is_root_hub() {
+                    theme::ACCENT
+                } else {
+                    theme::TEXT
+                });
                 let mut label = format!("{} ", d.label()).fg(label_color);
                 if d.is_root_hub() {
                     label = label.bold();
@@ -614,7 +639,9 @@ impl App {
                 title,
             );
             f.render_widget(
-                Sparkline::default().data(h).style(Style::new().fg(theme::MINT)),
+                Sparkline::default()
+                    .data(h)
+                    .style(Style::new().fg(theme::MINT)),
                 graph,
             );
         }
@@ -624,8 +651,10 @@ impl App {
         let block = pane("events");
         if self.log.is_empty() {
             f.render_widget(
-                Paragraph::new(Line::from("waiting for hot-plug events…".fg(theme::DIM).italic()))
-                    .block(block),
+                Paragraph::new(Line::from(
+                    "waiting for hot-plug events…".fg(theme::DIM).italic(),
+                ))
+                .block(block),
                 area,
             );
             return;

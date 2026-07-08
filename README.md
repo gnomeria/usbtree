@@ -107,7 +107,7 @@ The header shows which source is active:
 - **`◌ urb activity`** — unprivileged default: URB-count deltas from sysfs `urbnum`, shown as relative activity (URBs/s)
 - **`◉ usbmon bytes/s`** — real per-device bandwidth when `/sys/kernel/debug/usb/usbmon` is readable, i.e. running as root with the `usbmon` module loaded and debugfs mounted
 
-On macOS and Windows the tree, details, and hot-plug log all work; activity sparklines are not available.
+On macOS and Windows the tree, details, and hot-plug log all work; **live activity sparklines are not available**. The header reads `◌ activity n/a on this platform`. There is no unprivileged per-device traffic counter on those systems — `urbnum`/`usbmon` are Linux-only, and `sudo` does not help. macOS IOKit only exposes an HID-specific report counter (keyboards/mice), which is too partial to be worth it, so per-device activity is **not implemented** there yet.
 
 ## How it works
 
