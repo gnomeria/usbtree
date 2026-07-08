@@ -110,6 +110,29 @@ fn fmt_rate(v: u64, bytes: bool) -> String {
     }
 }
 
+/// Standard base64, no padding elided. ~15 lines beats an extra crate.
+fn base64(input: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for c in input.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        out.push(T[(n >> 18 & 63) as usize] as char);
+        out.push(T[(n >> 12 & 63) as usize] as char);
+        out.push(if c.len() > 1 { T[(n >> 6 & 63) as usize] as char } else { '=' });
+        out.push(if c.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// Copy to the terminal clipboard via OSC 52 — works locally and over SSH,
+/// no platform clipboard crate. Terminal must allow it (most do).
+fn clip(text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    write!(out, "\x1b]52;c;{}\x07", base64(text.as_bytes()))?;
+    out.flush()
+}
+
 fn lerp(a: Color, b: Color, t: f32) -> Color {
     let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (a, b) else {
         return a;
@@ -240,6 +263,8 @@ struct App {
     metrics: Metrics,
     /// per-device activity history, newest last
     rates: HashMap<String, Vec<u64>>,
+    /// transient status line (e.g. "copied …"), shown until it ages out
+    toast: Option<(String, Instant)>,
 }
 
 impl App {
@@ -270,6 +295,7 @@ impl App {
             last_scan: Instant::now(),
             metrics,
             rates: HashMap::new(),
+            toast: None,
         }
     }
 
@@ -294,6 +320,8 @@ impl App {
                     KeyCode::Left | KeyCode::Char('h') => self.fold(Some(true)),
                     KeyCode::Right | KeyCode::Char('l') => self.fold(Some(false)),
                     KeyCode::Char('r') => self.rescan(),
+                    KeyCode::Char('y') => self.yank(false),
+                    KeyCode::Char('Y') => self.yank(true),
                     _ => {}
                 }
             }
@@ -310,6 +338,32 @@ impl App {
         let cur = self.list.selected().unwrap_or(0) as isize;
         let new = (cur + delta).clamp(0, self.rows.len() as isize - 1);
         self.list.select(Some(new as usize));
+    }
+
+    /// Copy the selected device to the clipboard. `full` grabs a labelled
+    /// block; otherwise just the `vid:pid`.
+    fn yank(&mut self, full: bool) {
+        let Some(&(_, i)) = self.list.selected().and_then(|s| self.rows.get(s)) else {
+            return;
+        };
+        let d = &self.render[i];
+        let id = format!("{:04x}:{:04x}", d.vid, d.pid);
+        let (text, what) = if full {
+            let mut t = format!("{}\n{id}\n{}", d.label(), d.name);
+            if let Some(s) = &d.serial {
+                t.push_str(&format!("\n{s}"));
+            }
+            (t, format!("{} details", d.name))
+        } else {
+            (id.clone(), id)
+        };
+        self.toast = Some((
+            match clip(&text) {
+                Ok(()) => format!("copied {what}"),
+                Err(e) => format!("copy failed: {e}"),
+            },
+            Instant::now(),
+        ));
     }
 
     fn rescan(&mut self) {
@@ -441,11 +495,28 @@ impl App {
         self.draw_detail(f, detail_area);
         self.draw_log(f, log_area);
 
+        // fresh toast takes over the help line for a couple seconds
+        if let Some((msg, t)) = &self.toast
+            && t.elapsed() < Duration::from_secs(2)
+        {
+            let ok = msg.starts_with("copied");
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    if ok { " ✓ " } else { " ✗ " }
+                        .fg(if ok { theme::MINT } else { theme::ROSE })
+                        .bold(),
+                    msg.clone().fg(theme::TEXT),
+                ])),
+                help,
+            );
+            return;
+        }
         let keys = [
             ("j/k", "move"),
             ("↵", "toggle"),
             ("h/l", "fold/unfold"),
             ("g/G", "top/bottom"),
+            ("y/Y", "yank"),
             ("r", "rescan"),
             ("q", "quit"),
         ];
@@ -696,5 +767,22 @@ impl App {
             }
         });
         f.render_widget(List::new(items.collect::<Vec<_>>()).block(block), area);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base64;
+
+    #[test]
+    fn base64_matches_rfc_vectors() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foob"), "Zm9vYg==");
+        assert_eq!(base64(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64(b"046d:c52b"), "MDQ2ZDpjNTJi");
     }
 }
