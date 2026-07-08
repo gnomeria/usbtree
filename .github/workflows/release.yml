@@ -45,18 +45,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-amd64, runner: ubuntu-24.04, os: linux }
-          - { name: linux-arm64, runner: ubuntu-24.04-arm, os: linux }
-          - { name: darwin-arm64, runner: macos-14, os: macos }
-          - { name: windows-amd64, runner: windows-latest, os: windows }
+          # linux → static musl: no glibc version floor, runs on any distro.
+          - { name: linux-amd64, runner: ubuntu-24.04, os: linux, target: x86_64-unknown-linux-musl }
+          - { name: linux-arm64, runner: ubuntu-24.04-arm, os: linux, target: aarch64-unknown-linux-musl }
+          - { name: darwin-arm64, runner: macos-14, os: macos, target: aarch64-apple-darwin }
+          - { name: windows-amd64, runner: windows-latest, os: windows, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Pure-rust deps (nusb uses raw syscalls, no libusb), so musl-gcc is only
+      # needed as the linker driver — no C cross-compile toolchain required.
+      - name: Install musl linker
+        if: matrix.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build
         shell: bash
-        run: cargo build --release --locked
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Archive (tar.gz)
         if: matrix.os != 'windows'
@@ -64,7 +73,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ART="usbtree_${VERSION}_${{ matrix.name }}.tar.gz"
-          tar -C target/release -czf "$ART" usbtree
+          tar -C "target/${{ matrix.target }}/release" -czf "$ART" usbtree
           shasum -a 256 "$ART" > "$ART.sha256"
 
       - name: Archive (zip)
@@ -73,7 +82,7 @@ jobs:
         run: |
           $v = "$env:GITHUB_REF_NAME" -replace '^v',''
           $art = "usbtree_${v}_${{ matrix.name }}.zip"
-          Compress-Archive -Path target/release/usbtree.exe -DestinationPath $art
+          Compress-Archive -Path "target/${{ matrix.target }}/release/usbtree.exe" -DestinationPath $art
           $hash = (Get-FileHash $art -Algorithm SHA256).Hash.ToLower()
           "$hash  $art" | Out-File "$art.sha256" -Encoding ascii -NoNewline
 

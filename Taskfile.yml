@@ -28,6 +28,11 @@ tasks:
     cmds:
       - cargo build --release --locked
 
+  build-static:
+    desc: Static musl release build (glibc-independent, like CI ships). Needs `rustup target add x86_64-unknown-linux-musl`.
+    cmds:
+      - cargo build --release --locked --target x86_64-unknown-linux-musl
+
   test:
     desc: Run the test suite
     cmds:
