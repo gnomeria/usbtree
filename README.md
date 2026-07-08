@@ -42,6 +42,7 @@ Downloads the latest release for your platform, verifies its sha256 against `che
 | --------------------- | ---------------------------------------------------------- |
 | `USBTREE_VERSION`     | install a specific version, e.g. `0.0.1` (default: latest) |
 | `USBTREE_INSTALL_DIR` | install directory override                                 |
+| `USBTREE_SUDO_SYMLINK`| `1` → symlink into `/usr/local/bin` (via `sudo`) so `sudo usbtree` works for usbmon bytes/s |
 
 ### Prebuilt binaries
 
@@ -127,8 +128,10 @@ The header shows which source is active:
 
 ```sh
 sudo modprobe usbmon
-sudo usbtree
+sudo "$(command -v usbtree)"
 ```
+
+Why `sudo "$(command -v usbtree)"` and not plain `sudo usbtree`? If you installed to `~/.local/bin`, `sudo` won't find `usbtree` — it resolves commands against the restricted `secure_path` in `/etc/sudoers`, which excludes your home bin, so `sudo usbtree` gives `command not found`. Passing the absolute path (`command -v` prints it) sidesteps the lookup. Installing to `/usr/local/bin` (the installer's default when writable) avoids this entirely, since that dir *is* in `secure_path`.
 
 Check it's loaded with `lsmod | grep usbmon`. To load it automatically on every boot:
 
