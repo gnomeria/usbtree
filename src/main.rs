@@ -2,11 +2,12 @@ mod metrics;
 mod usb;
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::layout::{Constraint, Layout, Margin, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
@@ -295,6 +296,10 @@ struct App {
     rates: HashMap<String, Vec<u64>>,
     /// transient status line (e.g. "copied …"), shown until it ages out
     toast: Option<(String, Instant)>,
+    /// newer release version once the background check finds one (no auto-update)
+    update: Option<String>,
+    /// one-shot channel carrying the newer version from the check thread
+    update_rx: Option<Receiver<String>>,
 }
 
 impl App {
@@ -311,7 +316,22 @@ impl App {
             Metrics::new()
         };
         metrics.sample(&devices); // baseline so the first tick is a delta, not a total
+        // check GitHub for a newer release off the UI thread; skip in demo so
+        // screenshots/VHS stay offline and deterministic
+        let update_rx = (!demo).then(|| {
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                if let Some(v) = usb::latest_release()
+                    && usb::is_newer(&v, env!("CARGO_PKG_VERSION"))
+                {
+                    let _ = tx.send(v);
+                }
+            });
+            rx
+        });
         Self {
+            update: None,
+            update_rx,
             demo,
             render: devices.clone(),
             devices,
@@ -358,6 +378,12 @@ impl App {
             }
             if self.last_scan.elapsed() >= RESCAN_INTERVAL {
                 self.rescan();
+            }
+            if let Some(rx) = &self.update_rx
+                && let Ok(v) = rx.try_recv()
+            {
+                self.update = Some(v);
+                self.update_rx = None;
             }
         }
     }
@@ -580,8 +606,8 @@ impl App {
         self.draw_detail(f, detail_area);
         self.draw_log(f, log_area);
 
-        // fresh toast takes over the help line for a couple seconds
-        if let Some((msg, t)) = &self.toast
+        // fresh toast takes over the help line for a couple seconds, else key hints
+        let showed_toast = if let Some((msg, t)) = &self.toast
             && t.elapsed() < Duration::from_secs(2)
         {
             let ok = msg.starts_with("copied");
@@ -594,24 +620,39 @@ impl App {
                 ])),
                 help,
             );
-            return;
+            true
+        } else {
+            false
+        };
+        if !showed_toast {
+            let keys = [
+                ("j/k", "move"),
+                ("↵", "toggle"),
+                ("h/l", "fold/unfold"),
+                ("g/G", "top/bottom"),
+                ("tab", "focus"),
+                ("y/Y", "yank"),
+                ("r", "rescan"),
+                ("q", "quit"),
+            ];
+            let mut spans = vec![Span::raw(" ")];
+            for (key, desc) in keys {
+                spans.push(key.fg(theme::ACCENT).bold());
+                spans.push(format!(" {desc}   ").fg(theme::DIM));
+            }
+            f.render_widget(Paragraph::new(Line::from(spans)), help);
         }
-        let keys = [
-            ("j/k", "move"),
-            ("↵", "toggle"),
-            ("h/l", "fold/unfold"),
-            ("g/G", "top/bottom"),
-            ("tab", "focus"),
-            ("y/Y", "yank"),
-            ("r", "rescan"),
-            ("q", "quit"),
-        ];
-        let mut spans = vec![Span::raw(" ")];
-        for (key, desc) in keys {
-            spans.push(key.fg(theme::ACCENT).bold());
-            spans.push(format!(" {desc}   ").fg(theme::DIM));
-        }
-        f.render_widget(Paragraph::new(Line::from(spans)), help);
+
+        // version pinned bottom-right; upgrade badge when a newer release exists
+        let ver = env!("CARGO_PKG_VERSION");
+        let right = match &self.update {
+            Some(new) => Line::from(vec![
+                format!("v{ver} ").fg(theme::DIM),
+                format!("↑ v{new} ").fg(theme::MINT).bold(),
+            ]),
+            None => Line::from(format!("v{ver} ").fg(theme::FAINT)),
+        };
+        f.render_widget(Paragraph::new(right).alignment(Alignment::Right), help);
     }
 
     fn draw_header(&self, f: &mut Frame, area: Rect) {
