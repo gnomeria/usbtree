@@ -21,6 +21,9 @@ pub struct Device {
     pub iface_classes: Vec<u8>,
     /// bus device number, for matching usbmon traffic
     pub devnum: u8,
+    /// `bMaxPower`: max current the device *requests* from the bus, in mA —
+    /// advertised, not measured draw. Linux-only (sysfs); None elsewhere.
+    pub max_power_ma: Option<u16>,
 }
 
 impl Device {
@@ -176,6 +179,7 @@ pub fn scan() -> Vec<Device> {
                 class: 0x09,
                 iface_classes: Vec::new(),
                 devnum: 1, // root hub is always device 1 on its bus
+                max_power_ma: None,
             });
         }
     }
@@ -203,10 +207,26 @@ pub fn scan() -> Vec<Device> {
                 .filter(|&c| c != 0)
                 .collect(),
             devnum: d.device_address(),
+            #[cfg(target_os = "linux")]
+            max_power_ma: read_max_power(d.sysfs_path()),
+            #[cfg(not(target_os = "linux"))]
+            max_power_ma: None,
         });
     }
     devices.sort_by_key(|d| sort_key(&d.name));
     devices
+}
+
+/// Read `bMaxPower` from a device's sysfs dir (unprivileged, no device open).
+#[cfg(target_os = "linux")]
+fn read_max_power(sysfs: &std::path::Path) -> Option<u16> {
+    parse_max_power(&fs::read_to_string(sysfs.join("bMaxPower")).ok()?)
+}
+
+/// Parse a sysfs `bMaxPower` value like "500mA" -> 500.
+#[cfg(any(target_os = "linux", test))]
+fn parse_max_power(s: &str) -> Option<u16> {
+    s.trim().trim_end_matches("mA").trim().parse().ok()
 }
 
 /// "001" (zero-padded on Linux) -> "1", keeps non-numeric ids as-is.
@@ -426,7 +446,8 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
                product: &str,
                speed: &str,
                class: u8,
-               ifaces: &[u8]| Device {
+               ifaces: &[u8],
+               power: Option<u16>| Device {
         name: name.into(),
         vid,
         pid,
@@ -437,25 +458,27 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         class,
         iface_classes: ifaces.to_vec(),
         devnum: 0,
+        max_power_ma: power,
     };
     let t = t % 30;
     let mut devices = vec![
-        dev("usb1", 0, 0, "", "xhci-hcd", "", 0x09, &[]),
-        dev("1-1", 0x046d, 0xc52b, "Logitech", "Unifying Receiver", "12", 0x00, &[0x03]),
-        dev("1-2", 0x07fd, 0x000b, "MOTU", "M2", "480", 0xef, &[0x01, 0x01, 0xff]),
-        dev("1-3", 0x05e3, 0x0610, "Genesys Logic", "USB2.0 Hub", "480", 0x09, &[]),
-        dev("1-3.1", 0x3434, 0x0121, "Keychron", "Keychron K8", "12", 0x00, &[0x03]),
-        dev("1-3.2", 0x046d, 0xb034, "Logitech", "MX Master 3S", "12", 0x00, &[0x03]),
-        dev("usb2", 0, 0, "", "xhci-hcd", "", 0x09, &[]),
+        dev("usb1", 0, 0, "", "xhci-hcd", "", 0x09, &[], None),
+        dev("1-1", 0x046d, 0xc52b, "Logitech", "Unifying Receiver", "12", 0x00, &[0x03], Some(98)),
+        dev("1-2", 0x07fd, 0x000b, "MOTU", "M2", "480", 0xef, &[0x01, 0x01, 0xff], Some(500)),
+        dev("1-3", 0x05e3, 0x0610, "Genesys Logic", "USB2.0 Hub", "480", 0x09, &[], Some(100)),
+        dev("1-3.1", 0x3434, 0x0121, "Keychron", "Keychron K8", "12", 0x00, &[0x03], Some(500)),
+        dev("1-3.2", 0x046d, 0xb034, "Logitech", "MX Master 3S", "12", 0x00, &[0x03], Some(100)),
+        dev("usb2", 0, 0, "", "xhci-hcd", "", 0x09, &[], None),
     ];
     if (6..24).contains(&t) {
         devices.push(dev(
-            "2-1", 0x0781, 0x558c, "SanDisk", "Extreme SSD", "10000", 0x00, &[0x08],
+            "2-1", 0x0781, 0x558c, "SanDisk", "Extreme SSD", "10000", 0x00, &[0x08], Some(896),
         ));
     }
     if !(14..20).contains(&t) {
         devices.push(dev(
             "2-3", 0x046d, 0x082d, "Logitech", "HD Pro Webcam C920", "480", 0xef, &[0x0e, 0x01],
+            Some(500),
         ));
     }
     devices.sort_by_key(|d| sort_key(&d.name));
@@ -542,7 +565,15 @@ mod tests {
             class,
             iface_classes: ifaces.to_vec(),
             devnum: 0,
+            max_power_ma: None,
         }
+    }
+
+    #[test]
+    fn max_power_parses_sysfs() {
+        assert_eq!(parse_max_power("500mA\n"), Some(500));
+        assert_eq!(parse_max_power("0mA"), Some(0));
+        assert_eq!(parse_max_power(""), None);
     }
 
     #[test]

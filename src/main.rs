@@ -1209,6 +1209,13 @@ impl App {
                 format!("  {} Mbps", d.speed).fg(theme::FAINT),
             ]));
         }
+        if let Some(ma) = d.max_power_ma {
+            lines.push(Line::from(vec![
+                key("power"),
+                format!("{ma} mA").fg(theme::TEXT),
+                "  max".fg(theme::FAINT),
+            ]));
+        }
         if let Some(s) = &d.serial {
             lines.push(Line::from(vec![key("serial"), s.clone().fg(theme::TEXT)]));
         }
