@@ -25,6 +25,7 @@ pub enum Metrics {
     Demo { tick: u64 },
     /// No per-device activity source (macOS/Windows: nothing published
     /// unprivileged — the sole IOKit counter is HID-only, not worth it).
+    #[cfg(not(target_os = "linux"))]
     None,
 }
 
@@ -73,7 +74,14 @@ impl Metrics {
 
     /// False when this platform publishes no per-device activity at all.
     pub fn is_available(&self) -> bool {
-        !matches!(self, Metrics::None)
+        #[cfg(target_os = "linux")]
+        {
+            true
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            !matches!(self, Metrics::None)
+        }
     }
 
     /// Per-device rate accumulated since the last call, keyed by sysfs name.
@@ -113,6 +121,7 @@ impl Metrics {
                     .filter(|&(_, r)| r > 0)
                     .collect()
             }
+            #[cfg(not(target_os = "linux"))]
             Metrics::None => HashMap::new(),
         }
     }
