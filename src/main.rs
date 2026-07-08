@@ -351,8 +351,11 @@ impl App {
                 h.remove(0);
             }
         }
-        self.rates
-            .retain(|k, _| self.devices.iter().any(|d| &d.name == k));
+        // keep history for present devices and still-fading ghosts (frozen old data)
+        self.rates.retain(|k, _| {
+            self.devices.iter().any(|d| &d.name == k)
+                || self.ghosts.iter().any(|(d, _)| &d.name == k)
+        });
 
         // keep selection on the same device across rescans
         let selected_name = self
@@ -544,19 +547,6 @@ impl App {
                 if let Some((glyph, human, color)) = speed_badge(&d.speed) {
                     spans.push(format!("  {glyph} {human}").fg(color));
                 }
-                if let Some(h) = self.rates.get(&d.name)
-                    && h.iter().rev().take(SPARK_WIDTH).any(|&v| v > 0)
-                {
-                    spans.push(format!("  {}", sparkline(h, SPARK_WIDTH)).fg(theme::MINT));
-                    let cur = h.last().copied().unwrap_or(0);
-                    if cur > 0 {
-                        spans.push(
-                            format!(" {}", fmt_rate(cur, self.metrics.is_bytes()))
-                                .fg(theme::MINT)
-                                .bold(),
-                        );
-                    }
-                }
                 if folded {
                     spans.push(Span::raw(" "));
                     spans.push(Span::styled(
@@ -564,10 +554,47 @@ impl App {
                         Style::new().bg(theme::PILL).fg(theme::PILL_FG).bold(),
                     ));
                 }
-                if ghost.is_some() {
-                    spans.push("  ○ unplugged".fg(fade(theme::TEXT)).bold());
-                } else if flash.is_some() {
-                    spans.push("  ● plugged".fg(fade(theme::TEXT)).bold());
+
+                // right-aligned block, fixed-width columns so they stack tidily:
+                // [spark:SPARK_WIDTH] [rate:RATE_W] [badge:BADGE_W]
+                const RATE_W: usize = 9;
+                const BADGE_W: usize = 12;
+                let h = self.rates.get(&d.name);
+                let has_traffic =
+                    h.is_some_and(|h| h.iter().rev().take(SPARK_WIDTH).any(|&v| v > 0));
+                let badge = match (ghost.is_some(), flash.is_some()) {
+                    (true, _) => Some(("○ unplugged", fade(theme::TEXT))),
+                    (_, true) => Some(("● plugged", fade(theme::TEXT))),
+                    _ => None,
+                };
+                if has_traffic || badge.is_some() {
+                    let cur = h.and_then(|h| h.last().copied()).unwrap_or(0);
+                    let spark = if has_traffic {
+                        sparkline(h.unwrap(), SPARK_WIDTH)
+                    } else {
+                        " ".repeat(SPARK_WIDTH)
+                    };
+                    let rate = if cur > 0 {
+                        fmt_rate(cur, self.metrics.is_bytes())
+                    } else {
+                        String::new()
+                    };
+                    let (btext, bcolor) = badge.unwrap_or(("", theme::TEXT));
+                    // badge slot always reserved so the rate column stays put
+                    // ghost rows keep their frozen old data but tinted red via fade()
+                    let metric = fade(theme::MINT);
+                    let right = vec![
+                        format!("{spark:>SPARK_WIDTH$} ").fg(metric),
+                        format!("{rate:>RATE_W$}").fg(metric).bold(),
+                        format!("  {btext:<BADGE_W$}").fg(bcolor).bold(),
+                    ];
+                    // inner width = area minus border(2) + horizontal padding(2)
+                    let inner = area.width.saturating_sub(4) as usize;
+                    let left_w: usize = spans.iter().map(Span::width).sum();
+                    let right_w: usize = right.iter().map(Span::width).sum();
+                    let pad = inner.saturating_sub(left_w + right_w).max(2);
+                    spans.push(Span::raw(" ".repeat(pad)));
+                    spans.extend(right);
                 }
                 ListItem::new(Line::from(spans))
             })
