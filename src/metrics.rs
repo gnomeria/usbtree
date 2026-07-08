@@ -23,6 +23,9 @@ pub enum NoBytes {
     NeedModule,
     /// present but unreadable (`EACCES`): not running as root.
     NeedRoot,
+    /// present, running as root, but `EPERM` from kernel lockdown (Secure
+    /// Boot): even root can't read usbmon until lockdown is turned off.
+    Locked,
 }
 
 pub enum Metrics {
@@ -63,6 +66,11 @@ impl Metrics {
             Err(e) => {
                 let why = if e.kind() == std::io::ErrorKind::NotFound {
                     NoBytes::NeedModule
+                } else if e.raw_os_error() == Some(1) && lockdown_active() {
+                    // EPERM (1) despite root = kernel lockdown, not DAC perms.
+                    // Confirm against the LSM mode file so a stray EPERM from
+                    // some other cause doesn't get mislabeled as lockdown.
+                    NoBytes::Locked
                 } else {
                     NoBytes::NeedRoot
                 };
@@ -107,6 +115,7 @@ impl Metrics {
             Metrics::Urb { why, .. } => match why {
                 NoBytes::NeedModule => "◌ urb activity — modprobe usbmon for bytes/s",
                 NoBytes::NeedRoot => "◌ urb activity — sudo + modprobe usbmon for bytes/s",
+                NoBytes::Locked => "◌ urb activity — kernel lockdown blocks usbmon (disable Secure Boot)",
             },
             #[cfg(not(target_os = "linux"))]
             Metrics::None => "◌ activity n/a on this platform",
@@ -181,6 +190,21 @@ fn read_u64(path: &str) -> Option<u64> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
+/// Kernel lockdown active? Reads the LSM's mode file. `[none]` bracketed (or
+/// the file absent = LSM not built) means off; any other bracketed mode
+/// (`integrity`/`confidentiality`) blocks usbmon reads even for root.
+#[cfg(target_os = "linux")]
+fn lockdown_active() -> bool {
+    fs::read_to_string("/sys/kernel/security/lockdown").is_ok_and(|s| lockdown_on(&s))
+}
+
+/// The bracket check, split out so it's testable without the file. The active
+/// mode is the bracketed word: `[none] integrity confidentiality` = off.
+#[cfg(any(target_os = "linux", test))]
+fn lockdown_on(mode: &str) -> bool {
+    !mode.contains("[none]")
+}
+
 /// Parse one usbmon text line, e.g.
 /// `ffff9c.. 3003687252 C Ii:1:002:1 0:8 8 = 1f00..` -> ((bus, dev), bytes).
 /// Counts completed IN and submitted OUT transfers (usbtop's method).
@@ -225,5 +249,12 @@ mod tests {
         let l = "ffff9c1a 3003687252 S Co:1:001:0 s 23 01 0010 0002 0000 0";
         assert_eq!(parse_usbmon(l), None);
         assert_eq!(parse_usbmon("garbage"), None);
+    }
+
+    #[test]
+    fn lockdown_bracket() {
+        assert!(!lockdown_on("[none] integrity confidentiality\n"));
+        assert!(lockdown_on("none [integrity] confidentiality\n"));
+        assert!(lockdown_on("none integrity [confidentiality]\n"));
     }
 }
