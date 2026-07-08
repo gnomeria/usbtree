@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.5](https://github.com/gnomeria/usbtree/compare/v0.0.4...v0.0.5) (2026-07-08)
+
+
+### Features
+
+* **install:** add PowerShell installer for Windows ([bbfcb87](https://github.com/gnomeria/usbtree/commit/bbfcb8758084827f7f5ca75e718e7a00669dfd5b))
+
+
+### Bug Fixes
+
+* **build:** statically link CRT so Windows exe runs without VC++ Redistributable ([#33](https://github.com/gnomeria/usbtree/issues/33)) ([bbfcb87](https://github.com/gnomeria/usbtree/commit/bbfcb8758084827f7f5ca75e718e7a00669dfd5b))
+
 ## [0.0.4](https://github.com/gnomeria/usbtree/compare/v0.0.3...v0.0.4) (2026-07-08)
 
 
