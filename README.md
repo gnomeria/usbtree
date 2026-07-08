@@ -11,6 +11,20 @@ Cross-platform TUI for inspecting the USB device tree (Linux, macOS, Windows). E
 
 ![usbtree demo](docs/screenshots/demo.gif)
 
+## Platform support
+
+| Feature                                              |     Linux     | macOS | Windows |
+| ---------------------------------------------------- | :-----------: | :---: | :-----: |
+| Device tree — hubs, classes, speeds, tree rails      |      ✅       |  ✅   |   ✅    |
+| Friendly names (`overrides.ids` + usb.ids)           |      ✅       |  ✅   |   ✅    |
+| Hot-plug watch + timestamped event log               |      ✅       |  ✅   |   ✅    |
+| Detail panel — sysfs path, vid:pid, serial, children |      ✅       |  ✅   |   ✅    |
+| Live activity sparklines — URBs/s (unprivileged)     |      ✅       |   —   |    —    |
+| Real bandwidth — bytes/s via usbmon (root)           |      ✅       |   —   |    —    |
+| Prebuilt binaries                                    | amd64 · arm64 | arm64 |  amd64  |
+
+Live per-device activity is Linux-only: macOS and Windows expose no unprivileged per-device traffic counter (`sudo` doesn't help), so the header reads `◌ activity n/a on this platform`. [Details →](#activity-metrics-linux)
+
 ## Install
 
 > [!NOTE]

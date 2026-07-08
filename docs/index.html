@@ -450,6 +450,52 @@
         font-size: 0.9rem;
       }
 
+      /* ---- platform matrix ---- */
+      .matrix-wrap {
+        margin-top: 28px;
+        overflow-x: auto;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+      }
+      .matrix {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+      }
+      .matrix th,
+      .matrix td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      .matrix thead th {
+        color: var(--text);
+        font-weight: 700;
+      }
+      .matrix th + th,
+      .matrix td + td {
+        text-align: center;
+      }
+      .matrix tbody tr:last-child td {
+        border-bottom: 0;
+      }
+      .matrix tbody tr:hover {
+        background: var(--sel);
+      }
+      .matrix .yes {
+        color: var(--mint);
+        font-weight: 700;
+      }
+      .matrix .no {
+        color: var(--faint);
+      }
+      .matrix td .dim {
+        font-weight: 400;
+        font-size: 0.85em;
+      }
+
       /* ---- keys ---- */
       .keys {
         margin-top: 28px;
@@ -736,6 +782,74 @@
             scripts, <code>--demo</code> to try it without hardware.
           </p>
         </div>
+      </div>
+    </section>
+
+    <section class="wrap" id="platforms">
+      <h2><span class="hash">#</span>Platform support</h2>
+      <p class="sub">
+        The tree, names, hot-plug log and detail panel work everywhere. Live
+        per-device traffic is Linux-only — macOS and Windows expose no
+        unprivileged per-device counter, so the header reads
+        <code style="font-family: var(--mono)"
+          >◌ activity n/a on this platform</code
+        >.
+      </p>
+      <div class="matrix-wrap">
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Linux</th>
+              <th>macOS</th>
+              <th>Windows</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Device tree — hubs, classes, speeds</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+            </tr>
+            <tr>
+              <td>Friendly names — overrides + usb.ids</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+            </tr>
+            <tr>
+              <td>Hot-plug watch + event log</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+            </tr>
+            <tr>
+              <td>Detail panel — path, vid:pid, serial</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+            </tr>
+            <tr>
+              <td>Live sparklines <span class="dim">URBs/s</span></td>
+              <td class="yes">✓</td>
+              <td class="no">—</td>
+              <td class="no">—</td>
+            </tr>
+            <tr>
+              <td>Real bandwidth <span class="dim">usbmon bytes/s, root</span></td>
+              <td class="yes">✓</td>
+              <td class="no">—</td>
+              <td class="no">—</td>
+            </tr>
+            <tr>
+              <td>Prebuilt binaries</td>
+              <td class="yes">amd64 · arm64</td>
+              <td class="yes">arm64</td>
+              <td class="yes">amd64</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
