@@ -186,6 +186,15 @@ fn pane(title: &str) -> Block<'_> {
         .padding(Padding::horizontal(1))
 }
 
+/// Accent the border of the pane that currently holds keyboard focus.
+fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
+    if focused {
+        block.border_style(Style::new().fg(theme::ACCENT))
+    } else {
+        block
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let demo = std::env::args().any(|a| a == "--demo");
     if std::env::args().any(|a| a == "--dump") {
@@ -231,19 +240,38 @@ fn dump(demo: bool) {
     }
 }
 
-fn event_line(stamp: &str, added: bool, d: &Device) -> Line<'static> {
+/// One hot-plug entry: the styled line for display, plus the raw id / name for
+/// yanking (`y` = id, `Y` = name).
+struct LogEvent {
+    line: Line<'static>,
+    id: String,
+    name: String,
+}
+
+fn event_entry(stamp: &str, added: bool, d: &Device) -> LogEvent {
     let (glyph, color) = if added {
         ("▲ ", theme::MINT)
     } else {
         ("▼ ", theme::ROSE)
     };
-    Line::from(vec![
+    let line = Line::from(vec![
         stamp.to_string().fg(theme::DIM),
         Span::styled(glyph, Style::new().fg(color).bold()),
         format!("{:<8}", d.name).fg(theme::DIM),
         format!(" {} {}", d.icon(), d.label()).fg(theme::TEXT),
         format!("  {:04x}:{:04x}", d.vid, d.pid).fg(theme::FAINT),
-    ])
+    ]);
+    LogEvent {
+        line,
+        id: format!("{:04x}:{:04x}", d.vid, d.pid),
+        name: d.label(),
+    }
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum Focus {
+    Tree,
+    Events,
 }
 
 struct App {
@@ -257,7 +285,9 @@ struct App {
     ghosts: Vec<(Device, Instant)>,
     collapsed: HashSet<String>,
     list: ListState,
-    log: VecDeque<Line<'static>>,
+    log: VecDeque<LogEvent>,
+    log_state: ListState,
+    focus: Focus,
     started: Instant,
     last_scan: Instant,
     metrics: Metrics,
@@ -291,6 +321,8 @@ impl App {
             collapsed: HashSet::new(),
             list,
             log: VecDeque::new(),
+            log_state: ListState::default(),
+            focus: Focus::Tree,
             started: Instant::now(),
             last_scan: Instant::now(),
             metrics,
@@ -310,12 +342,11 @@ impl App {
             {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Down | KeyCode::Char('j') => self.move_sel(1),
-                    KeyCode::Up | KeyCode::Char('k') => self.move_sel(-1),
-                    KeyCode::Char('g') | KeyCode::Home => self.list.select(Some(0)),
-                    KeyCode::Char('G') | KeyCode::End => {
-                        self.list.select(Some(self.rows.len().saturating_sub(1)))
-                    }
+                    KeyCode::Tab | KeyCode::BackTab => self.toggle_focus(),
+                    KeyCode::Down | KeyCode::Char('j') => self.nav(1),
+                    KeyCode::Up | KeyCode::Char('k') => self.nav(-1),
+                    KeyCode::Char('g') | KeyCode::Home => self.nav_to(0),
+                    KeyCode::Char('G') | KeyCode::End => self.nav_to(isize::MAX),
                     KeyCode::Enter | KeyCode::Char(' ') => self.fold(None),
                     KeyCode::Left | KeyCode::Char('h') => self.fold(Some(true)),
                     KeyCode::Right | KeyCode::Char('l') => self.fold(Some(false)),
@@ -331,18 +362,72 @@ impl App {
         }
     }
 
-    fn move_sel(&mut self, delta: isize) {
-        if self.rows.is_empty() {
+    /// Switch keyboard focus between the tree and events panes. Entering the
+    /// events pane parks the cursor on the newest entry; leaving it clears the
+    /// selection so the pane snaps back to newest.
+    fn toggle_focus(&mut self) {
+        self.focus = match self.focus {
+            Focus::Tree => Focus::Events,
+            Focus::Events => Focus::Tree,
+        };
+        match self.focus {
+            Focus::Events if self.log_state.selected().is_none() && !self.log.is_empty() => {
+                self.log_state.select(Some(0))
+            }
+            Focus::Tree => self.log_state.select(None),
+            _ => {}
+        }
+    }
+
+    /// Move the selection in the focused pane. Selection drives ratatui's List
+    /// scroll; in the events pane a higher index is an older entry (newest-first).
+    fn nav(&mut self, delta: isize) {
+        let (state, len) = match self.focus {
+            Focus::Tree => (&mut self.list, self.rows.len()),
+            Focus::Events => (&mut self.log_state, self.log.len()),
+        };
+        if len == 0 {
             return;
         }
-        let cur = self.list.selected().unwrap_or(0) as isize;
-        let new = (cur + delta).clamp(0, self.rows.len() as isize - 1);
-        self.list.select(Some(new as usize));
+        let cur = state.selected().unwrap_or(0) as isize;
+        let new = (cur + delta).clamp(0, len as isize - 1);
+        state.select(Some(new as usize));
+    }
+
+    /// Jump to an absolute row in the focused pane (`0` = top, `isize::MAX` = bottom).
+    fn nav_to(&mut self, idx: isize) {
+        let (state, len) = match self.focus {
+            Focus::Tree => (&mut self.list, self.rows.len()),
+            Focus::Events => (&mut self.log_state, self.log.len()),
+        };
+        if len == 0 {
+            return;
+        }
+        let clamped = idx.clamp(0, len as isize - 1);
+        state.select(Some(clamped as usize));
     }
 
     /// Copy the selected device to the clipboard. `full` grabs a labelled
     /// block; otherwise just the `vid:pid`.
     fn yank(&mut self, full: bool) {
+        if self.focus == Focus::Events {
+            let Some(ev) = self.log_state.selected().and_then(|s| self.log.get(s)) else {
+                return;
+            };
+            let (text, what) = if full {
+                (ev.name.clone(), "event name")
+            } else {
+                (ev.id.clone(), "event id")
+            };
+            self.toast = Some((
+                match clip(&text) {
+                    Ok(()) => format!("copied {what}"),
+                    Err(e) => format!("copy failed: {e}"),
+                },
+                Instant::now(),
+            ));
+            return;
+        }
         let Some(&(_, i)) = self.list.selected().and_then(|s| self.rows.get(s)) else {
             return;
         };
@@ -377,10 +462,10 @@ impl App {
         let stamp = self.started.elapsed().as_secs();
         let stamp = format!("[{:02}:{:02}] ", stamp / 60, stamp % 60);
         for d in &added {
-            self.log.push_front(event_line(&stamp, true, d));
+            self.log.push_front(event_entry(&stamp, true, d));
         }
         for d in &removed {
-            self.log.push_front(event_line(&stamp, false, d));
+            self.log.push_front(event_entry(&stamp, false, d));
         }
         self.log.truncate(200);
         let now = Instant::now();
@@ -482,7 +567,7 @@ impl App {
         let [header, main, log_area, help] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(5),
-            Constraint::Length(8),
+            Constraint::Length(14),
             Constraint::Length(1),
         ])
         .areas(f.area().inner(Margin::new(1, 0)));
@@ -516,6 +601,7 @@ impl App {
             ("↵", "toggle"),
             ("h/l", "fold/unfold"),
             ("g/G", "top/bottom"),
+            ("tab", "focus"),
             ("y/Y", "yank"),
             ("r", "rescan"),
             ("q", "quit"),
@@ -627,9 +713,8 @@ impl App {
                 }
 
                 // right-aligned block, fixed-width columns so they stack tidily:
-                // [spark:SPARK_WIDTH] [rate:RATE_W] [badge:BADGE_W]
+                // [spark:SPARK_WIDTH] [rate:RATE_W] [badge — only when present]
                 const RATE_W: usize = 9;
-                const BADGE_W: usize = 12;
                 let h = self.rates.get(&d.name);
                 let has_traffic =
                     h.is_some_and(|h| h.iter().rev().take(SPARK_WIDTH).any(|&v| v > 0));
@@ -640,39 +725,46 @@ impl App {
                 };
                 if has_traffic || badge.is_some() {
                     let cur = h.and_then(|h| h.last().copied()).unwrap_or(0);
-                    let spark = if has_traffic {
-                        sparkline(h.unwrap(), SPARK_WIDTH)
-                    } else {
-                        " ".repeat(SPARK_WIDTH)
-                    };
                     let rate = if cur > 0 {
                         fmt_rate(cur, self.metrics.is_bytes())
                     } else {
                         String::new()
                     };
-                    let (btext, bcolor) = badge.unwrap_or(("", theme::TEXT));
-                    // badge slot always reserved so the rate column stays put
                     // ghost rows keep their frozen old data but tinted red via fade()
                     let metric = fade(theme::MINT);
-                    let right = vec![
-                        format!("{spark:>SPARK_WIDTH$} ").fg(metric),
-                        format!("{rate:>RATE_W$}").fg(metric).bold(),
-                        format!("  {btext:<BADGE_W$}").fg(bcolor).bold(),
-                    ];
                     // inner width = area minus border(2) + horizontal padding(2)
                     let inner = area.width.saturating_sub(4) as usize;
                     let left_w: usize = spans.iter().map(Span::width).sum();
-                    let right_w: usize = right.iter().map(Span::width).sum();
-                    let pad = inner.saturating_sub(left_w + right_w).max(2);
-                    spans.push(Span::raw(" ".repeat(pad)));
-                    spans.extend(right);
+                    // responsive: rate always right-aligns; the sparkline is
+                    // decoration, dropped when the pane is too narrow to hold it
+                    // (full history still lives in the detail pane). Too tight
+                    // for the number → a single activity tick.
+                    let room = inner.saturating_sub(left_w);
+                    let mut right = Vec::new();
+                    if has_traffic && room >= SPARK_WIDTH + 1 + RATE_W + 2 {
+                        right.push(format!("{:>SPARK_WIDTH$} ", sparkline(h.unwrap(), SPARK_WIDTH)).fg(metric));
+                    }
+                    if room >= RATE_W + 2 {
+                        right.push(format!("{rate:>RATE_W$}").fg(metric).bold());
+                    } else if has_traffic {
+                        right.push("▪".fg(metric).bold());
+                    }
+                    if let Some((btext, bcolor)) = badge {
+                        right.push(format!("  {btext}").fg(bcolor).bold());
+                    }
+                    if !right.is_empty() {
+                        let right_w: usize = right.iter().map(Span::width).sum();
+                        let pad = inner.saturating_sub(left_w + right_w).max(2);
+                        spans.push(Span::raw(" ".repeat(pad)));
+                        spans.extend(right);
+                    }
                 }
                 ListItem::new(Line::from(spans))
             })
             .collect();
         let list = List::new(items)
             .style(Style::new().fg(theme::TEXT))
-            .block(pane("✦ tree"))
+            .block(focus_ring(pane("✦ tree"), self.focus == Focus::Tree))
             .scroll_padding(2)
             .highlight_style(Style::new().bg(theme::SEL_BG));
         f.render_stateful_widget(list, area, &mut self.list);
@@ -745,8 +837,9 @@ impl App {
         }
     }
 
-    fn draw_log(&self, f: &mut Frame, area: Rect) {
-        let block = pane("events");
+    fn draw_log(&mut self, f: &mut Frame, area: Rect) {
+        let focused = self.focus == Focus::Events;
+        let block = focus_ring(pane("events"), focused);
         if self.log.is_empty() {
             f.render_widget(
                 Paragraph::new(Line::from(
@@ -758,15 +851,19 @@ impl App {
             return;
         }
         // newest entries bright, older ones dim out
-        let items = self.log.iter().enumerate().map(|(i, l)| {
-            let item = ListItem::new(l.clone());
+        let items = self.log.iter().enumerate().map(|(i, ev)| {
+            let item = ListItem::new(ev.line.clone());
             if i >= 4 {
                 item.style(Style::new().add_modifier(Modifier::DIM))
             } else {
                 item
             }
         });
-        f.render_widget(List::new(items.collect::<Vec<_>>()).block(block), area);
+        let mut list = List::new(items.collect::<Vec<_>>()).block(block);
+        if focused {
+            list = list.highlight_style(Style::new().bg(theme::SEL_BG));
+        }
+        f.render_stateful_widget(list, area, &mut self.log_state);
     }
 }
 
