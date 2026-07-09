@@ -121,8 +121,40 @@
         font-weight: 600;
       }
 
+      .os-toggle {
+        margin: 36px auto 10px;
+        max-width: 860px;
+        display: flex;
+        gap: 8px;
+      }
+      .os-tab {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        color: var(--dim);
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 14px;
+        cursor: pointer;
+        transition:
+          color 0.15s,
+          border-color 0.15s,
+          background 0.15s;
+      }
+      .os-tab[aria-selected="true"] {
+        color: var(--pill-fg);
+        background: var(--pill);
+        border-color: var(--pill);
+      }
+      .os-tab:hover {
+        border-color: var(--accent);
+        color: var(--text);
+      }
+      .os-tab[aria-selected="true"]:hover {
+        color: var(--pill-fg);
+      }
       .install {
-        margin: 36px auto 0;
+        margin: 0 auto;
         max-width: 860px;
         display: flex;
         align-items: center;
@@ -586,6 +618,14 @@
         <b>no root, no libusb</b>. Linux · macOS · Windows.
       </p>
 
+      <div class="os-toggle" role="tablist" aria-label="Install platform">
+        <button class="os-tab" data-os="unix" aria-selected="true">
+          Linux · macOS
+        </button>
+        <button class="os-tab" data-os="win" aria-selected="false">
+          Windows
+        </button>
+      </div>
       <div class="install">
         <code id="cmd"
           ><span class="p">$ </span>curl -fsSL
@@ -971,16 +1011,43 @@
     </footer>
 
     <script>
+      const CMDS = {
+        unix: {
+          p: "$ ",
+          cmd: "curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh",
+        },
+        win: {
+          p: "> ",
+          cmd: "irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex",
+        },
+      };
+      const cmdEl = document.getElementById("cmd");
+      const tabs = document.querySelectorAll(".os-tab");
+      // auto-detect: Windows visitors default to the PowerShell command
+      let os = /Windows/i.test(navigator.userAgent) ? "win" : "unix";
+
+      function renderCmd() {
+        const c = CMDS[os];
+        cmdEl.innerHTML =
+          '<span class="p">' + c.p + "</span>" + c.cmd;
+        tabs.forEach((t) =>
+          t.setAttribute("aria-selected", String(t.dataset.os === os)),
+        );
+      }
+      tabs.forEach((t) =>
+        t.addEventListener("click", () => {
+          os = t.dataset.os;
+          renderCmd();
+        }),
+      );
+      renderCmd();
+
       const btn = document.getElementById("copy");
       btn.addEventListener("click", () => {
-        navigator.clipboard
-          .writeText(
-            "curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh",
-          )
-          .then(() => {
-            btn.textContent = "copied ✓";
-            setTimeout(() => (btn.textContent = "copy"), 1500);
-          });
+        navigator.clipboard.writeText(CMDS[os].cmd).then(() => {
+          btn.textContent = "copied ✓";
+          setTimeout(() => (btn.textContent = "copy"), 1500);
+        });
       });
     </script>
   </body>
