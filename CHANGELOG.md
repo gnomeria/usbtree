@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.7](https://github.com/gnomeria/usbtree/compare/v0.0.6...v0.0.7) (2026-07-09)
+
+
+### Features
+
+* **usb:** expose device subclass/protocol + bus controller type ([#44](https://github.com/gnomeria/usbtree/issues/44)) ([4e39c3b](https://github.com/gnomeria/usbtree/commit/4e39c3b67f9715230f3e4a1763739e8a303dad4b))
+
+
+### Bug Fixes
+
+* **usb:** clean bus names on Windows ([#43](https://github.com/gnomeria/usbtree/issues/43)) ([c569cb0](https://github.com/gnomeria/usbtree/commit/c569cb0919c6bd8bb64075f16edcc30146cc3603))
+
+
+### Documentation
+
+* **readme:** merge duplicate installer env-var tables ([#42](https://github.com/gnomeria/usbtree/issues/42)) ([6204f4b](https://github.com/gnomeria/usbtree/commit/6204f4b16af5233e572a9b01f4e09ca8a62d0230))
+* refresh demo screenshots ([#39](https://github.com/gnomeria/usbtree/issues/39)) ([cdd1a6f](https://github.com/gnomeria/usbtree/commit/cdd1a6fe06f94069482110062cb8157fd7452adf))
+* refresh screenshots ([#45](https://github.com/gnomeria/usbtree/issues/45)) ([a39b494](https://github.com/gnomeria/usbtree/commit/a39b494dca0fbf94e9db1434600b4af9894a2674))
+* **site:** add OS toggle + auto-detect to hero install ([#41](https://github.com/gnomeria/usbtree/issues/41)) ([3e21d01](https://github.com/gnomeria/usbtree/commit/3e21d014aa3d0607c6c3b5f666fd7774bf3fd47a))
+
 ## [0.0.6](https://github.com/gnomeria/usbtree/compare/v0.0.5...v0.0.6) (2026-07-08)
 
 
