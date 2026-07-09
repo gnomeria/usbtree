@@ -119,6 +119,11 @@ fn ep_type(t: u8) -> &'static str {
     ["ctrl", "iso", "bulk", "int"][(t & 0x03) as usize]
 }
 
+/// BCD version word (bcdUSB / bcdDevice) as a dotted string: 0x0200 -> "2.00".
+fn bcd(v: u16) -> String {
+    format!("{:x}.{:02x}", v >> 8, v & 0xff)
+}
+
 /// Standard base64, no padding elided. ~15 lines beats an extra crate.
 fn base64(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1202,9 +1207,25 @@ impl App {
             Line::from(vec![
                 key("class"),
                 d.class_name().fg(class_color(d.effective_class())),
-                format!("  0x{:02x}", d.effective_class()).fg(theme::FAINT),
+                // device-level triple bDeviceClass:SubClass:Protocol (name is the
+                // friendly effective class; the code is the raw device descriptor)
+                format!("  {:02x}:{:02x}:{:02x}", d.class, d.subclass, d.protocol)
+                    .fg(theme::FAINT),
             ]),
         ];
+        if d.usb_version != 0 {
+            lines.push(Line::from(vec![
+                key("usb"),
+                bcd(d.usb_version).fg(theme::TEXT),
+                "  spec".fg(theme::FAINT),
+            ]));
+        }
+        if d.device_version != 0 {
+            lines.push(Line::from(vec![
+                key("rev"),
+                bcd(d.device_version).fg(theme::TEXT),
+            ]));
+        }
         if let Some((glyph, human, color)) = speed_badge(&d.speed) {
             lines.push(Line::from(vec![
                 key("speed"),
@@ -1218,6 +1239,16 @@ impl App {
                 format!("{ma} mA").fg(theme::TEXT),
                 "  max".fg(theme::FAINT),
             ]));
+        }
+        if let Some(a) = d.config_attributes {
+            let mut spans = vec![
+                key("powered"),
+                if a & 0x40 != 0 { "self" } else { "bus" }.fg(theme::TEXT),
+            ];
+            if a & 0x20 != 0 {
+                spans.push("  remote-wakeup".fg(theme::FAINT));
+            }
+            lines.push(Line::from(spans));
         }
         if let Some(s) = &d.serial {
             lines.push(Line::from(vec![key("serial"), s.clone().fg(theme::TEXT)]));
@@ -1236,9 +1267,14 @@ impl App {
                 let mut head = vec![
                     format!("{:>2} ", i.number).fg(theme::FAINT),
                     usb::class_name(i.class).fg(class_color(i.class)),
+                ];
+                if let Some(n) = &i.name {
+                    head.push(format!("  {n}").fg(theme::TEXT));
+                }
+                head.push(
                     format!("  {:02x}:{:02x}:{:02x}", i.class, i.subclass, i.protocol)
                         .fg(theme::FAINT),
-                ];
+                );
                 if i.alt != 0 {
                     head.push(format!("  alt{}", i.alt).fg(theme::FAINT));
                 }

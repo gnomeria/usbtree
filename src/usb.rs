@@ -16,9 +16,25 @@ pub struct Device {
     pub product: Option<String>,
     pub serial: Option<String>,
     pub speed: String,
+    /// `bcdUSB`: USB spec level, BCD-encoded (0x0200 = USB 2.00). Disambiguates
+    /// a speed the link negotiated down — free from DeviceInfo, all platforms.
+    /// 0 = unknown (root hubs).
+    pub usb_version: u16,
+    /// `bcdDevice`: the device's own firmware/revision number, BCD-encoded.
+    /// Free from DeviceInfo, all platforms. 0 = unknown.
+    pub device_version: u16,
+    /// device-level `bDeviceClass` / `bDeviceSubClass` / `bDeviceProtocol`.
+    /// Composite devices report 0 here and describe themselves per-interface.
     pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
     /// classes of all interfaces (composite devices describe themselves here)
     pub iface_classes: Vec<u8>,
+    /// `bmAttributes` of the first configuration: bit 6 self-powered, bit 5
+    /// remote-wakeup. Resolves the `max_power_ma` = 0 ambiguity (self-powered
+    /// devices legitimately draw nothing from the bus). None where no config
+    /// descriptor was read (Windows, or read failure).
+    pub config_attributes: Option<u8>,
     /// bus device number, for matching usbmon traffic
     pub devnum: u8,
     /// `bMaxPower`: max current the device *requests* from the bus, in mA —
@@ -39,6 +55,9 @@ pub struct Interface {
     pub class: u8,
     pub subclass: u8,
     pub protocol: u8,
+    /// `iInterface` string as cached by the OS (Linux gives it unprivileged;
+    /// None on macOS/Windows). Human label like "Audio Control" vs bare class.
+    pub name: Option<String>,
     pub endpoints: Vec<Endpoint>,
 }
 
@@ -54,27 +73,32 @@ pub struct Endpoint {
     pub interval: u8,
 }
 
-/// Parse interfaces + endpoints from a raw config-descriptor buffer. Accepts a
-/// bare configuration descriptor (macOS `active_configuration`) or a Linux
-/// sysfs `descriptors` blob that leads with the 18-byte device descriptor.
+/// Parse the config `bmAttributes` byte + interfaces/endpoints from a raw
+/// config-descriptor buffer. Accepts a bare configuration descriptor (macOS
+/// `active_configuration`) or a Linux sysfs `descriptors` blob that leads with
+/// the 18-byte device descriptor. Attributes is None when no config descriptor
+/// is present. Interface `name` is left None here — string_index alone needs a
+/// string-descriptor read; scan() fills names from the DeviceInfo summary.
 // ponytail: reads only the first configuration; multi-config devices are rare
 // and the active one is almost always first. Add config selection if asked.
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
-fn parse_interfaces(blob: &[u8]) -> Vec<Interface> {
+fn parse_config(blob: &[u8]) -> (Option<u8>, Vec<Interface>) {
     let cfg_bytes = match (blob.first(), blob.get(1)) {
         (Some(18), Some(1)) => &blob[18..], // skip leading device descriptor
         _ => blob,
     };
     let Some(cfg) = nusb::descriptors::ConfigurationDescriptor::new(cfg_bytes) else {
-        return Vec::new();
+        return (None, Vec::new());
     };
-    cfg.interface_alt_settings()
+    let ifaces = cfg
+        .interface_alt_settings()
         .map(|intf| Interface {
             number: intf.interface_number(),
             alt: intf.alternate_setting(),
             class: intf.class(),
             subclass: intf.subclass(),
             protocol: intf.protocol(),
+            name: None,
             endpoints: intf
                 .endpoints()
                 .map(|e| Endpoint {
@@ -86,7 +110,8 @@ fn parse_interfaces(blob: &[u8]) -> Vec<Interface> {
                 })
                 .collect(),
         })
-        .collect()
+        .collect();
+    (Some(cfg.attributes()), ifaces)
 }
 
 impl Device {
@@ -231,7 +256,12 @@ pub fn scan() -> Vec<Device> {
                 name: format!("usb{}", tidy_bus(bus.bus_id())),
                 vid: 0,
                 pid: 0,
-                manufacturer: bus.driver().map(str::to_string),
+                // prefer the clean controller enum (xHCI/EHCI/…); fall back to
+                // the raw driver string ("xhci-hcd") where the type is unknown.
+                manufacturer: bus
+                    .controller_type()
+                    .map(|c| format!("{c:?}"))
+                    .or_else(|| bus.driver().map(str::to_string)),
                 product: Some(
                     bus.system_name()
                         .map(str::to_string)
@@ -239,8 +269,13 @@ pub fn scan() -> Vec<Device> {
                 ),
                 serial: None,
                 speed: String::new(),
+                usb_version: 0,
+                device_version: 0,
                 class: 0x09,
+                subclass: 0,
+                protocol: 0,
                 iface_classes: Vec::new(),
+                config_attributes: None,
                 devnum: 1, // root hub is always device 1 on its bus
                 max_power_ma: None,
                 interfaces: Vec::new(),
@@ -256,7 +291,17 @@ pub fn scan() -> Vec<Device> {
             continue; // root hub; already synthesized from the bus list
         }
         let path: Vec<String> = chain.iter().map(u8::to_string).collect();
-        let (max_power_ma, interfaces) = descriptors(&d);
+        let (max_power_ma, config_attributes, mut interfaces) = descriptors(&d);
+        // The unprivileged summary iterator carries interface class + the OS-cached
+        // iInterface string; attach the string to each parsed alt-setting by number.
+        let infos: Vec<_> = d.interfaces().collect();
+        for iface in &mut interfaces {
+            iface.name = infos
+                .iter()
+                .find(|i| i.interface_number() == iface.number)
+                .and_then(|i| i.interface_string())
+                .map(str::to_string);
+        }
         devices.push(Device {
             name: format!("{}-{}", tidy_bus(d.bus_id()), path.join(".")),
             vid: d.vendor_id(),
@@ -265,12 +310,13 @@ pub fn scan() -> Vec<Device> {
             product: d.product_string().map(str::to_string),
             serial: d.serial_number().map(str::to_string),
             speed: d.speed().map(speed_mbps).unwrap_or_default(),
+            usb_version: d.usb_version(),
+            device_version: d.device_version(),
             class: d.class(),
-            iface_classes: d
-                .interfaces()
-                .map(|i| i.class())
-                .filter(|&c| c != 0)
-                .collect(),
+            subclass: d.subclass(),
+            protocol: d.protocol(),
+            iface_classes: infos.iter().map(|i| i.class()).filter(|&c| c != 0).collect(),
+            config_attributes,
             devnum: d.device_address(),
             max_power_ma,
             interfaces,
@@ -284,15 +330,15 @@ pub fn scan() -> Vec<Device> {
 /// open. Power from the `bMaxPower` attribute, interfaces from the raw
 /// `descriptors` blob (device + config descriptors concatenated).
 #[cfg(target_os = "linux")]
-fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
+fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Option<u8>, Vec<Interface>) {
     let sysfs = d.sysfs_path();
     let power = fs::read_to_string(sysfs.join("bMaxPower"))
         .ok()
         .and_then(|s| parse_max_power(&s));
-    let ifaces = fs::read(sysfs.join("descriptors"))
-        .map(|b| parse_interfaces(&b))
+    let (attrs, ifaces) = fs::read(sysfs.join("descriptors"))
+        .map(|b| parse_config(&b))
         .unwrap_or_default();
-    (power, ifaces)
+    (power, attrs, ifaces)
 }
 
 /// Parse a sysfs `bMaxPower` value like "500mA" -> 500.
@@ -312,10 +358,10 @@ fn parse_max_power(s: &str) -> Option<u16> {
 // sticks until replug (new locationID). Both fine at this scale — upgrade to a
 // TTL only if devices start flapping their descriptors.
 #[cfg(target_os = "macos")]
-type DescCache = std::sync::Mutex<HashMap<u32, (Option<u16>, Vec<Interface>)>>;
+type DescCache = std::sync::Mutex<HashMap<u32, (Option<u16>, Option<u8>, Vec<Interface>)>>;
 
 #[cfg(target_os = "macos")]
-fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
+fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Option<u8>, Vec<Interface>) {
     static CACHE: OnceLock<DescCache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let loc = d.location_id();
@@ -332,9 +378,10 @@ fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
         .ok()
         .and_then(|dev| {
             let c = dev.active_configuration().ok()?;
-            Some((Some(u16::from(c.max_power()) * unit), parse_interfaces(c.as_bytes())))
+            let (attrs, ifaces) = parse_config(c.as_bytes());
+            Some((Some(u16::from(c.max_power()) * unit), attrs, ifaces))
         })
-        .unwrap_or((None, Vec::new()));
+        .unwrap_or((None, None, Vec::new()));
     cache.lock().unwrap().insert(loc, v.clone());
     v
 }
@@ -343,8 +390,8 @@ fn descriptors(d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
 // ponytail: WinUSB can supply these via open(), but that's a behavior change on
 // a platform that currently opens nothing — wire it up when someone needs it.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn descriptors(_d: &nusb::DeviceInfo) -> (Option<u16>, Vec<Interface>) {
-    (None, Vec::new())
+fn descriptors(_d: &nusb::DeviceInfo) -> (Option<u16>, Option<u8>, Vec<Interface>) {
+    (None, None, Vec::new())
 }
 
 /// "001" (zero-padded on Linux) -> "1", keeps non-numeric ids as-is.
@@ -565,7 +612,8 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
                speed: &str,
                class: u8,
                ifaces: &[u8],
-               power: Option<u16>| Device {
+               power: Option<u16>,
+               attrs: u8| Device {
         name: name.into(),
         vid,
         pid,
@@ -573,35 +621,53 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         product: Some(product.into()),
         serial: None,
         speed: speed.into(),
+        // demo bcdUSB tracks the negotiated speed; bcdDevice a plausible rev.
+        usb_version: demo_usb_version(speed),
+        device_version: if speed.is_empty() { 0 } else { 0x0100 },
         class,
+        subclass: 0,
+        protocol: 0,
         iface_classes: ifaces.to_vec(),
+        config_attributes: (attrs != 0).then_some(attrs),
         devnum: 0,
         max_power_ma: power,
         interfaces: demo_interfaces(name),
     };
     let t = t % 30;
+    // attrs: 0x80 bus-powered, 0xa0 +remote-wakeup, 0xe0 self-powered +wakeup
     let mut devices = vec![
-        dev("usb1", 0, 0, "", "xhci-hcd", "", 0x09, &[], None),
-        dev("1-1", 0x046d, 0xc52b, "Logitech", "Unifying Receiver", "12", 0x00, &[0x03], Some(98)),
-        dev("1-2", 0x07fd, 0x000b, "MOTU", "M2", "480", 0xef, &[0x01, 0x01, 0xff], Some(500)),
-        dev("1-3", 0x05e3, 0x0610, "Genesys Logic", "USB2.0 Hub", "480", 0x09, &[], Some(100)),
-        dev("1-3.1", 0x3434, 0x0121, "Keychron", "Keychron K8", "12", 0x00, &[0x03], Some(500)),
-        dev("1-3.2", 0x046d, 0xb034, "Logitech", "MX Master 3S", "12", 0x00, &[0x03], Some(100)),
-        dev("usb2", 0, 0, "", "xhci-hcd", "", 0x09, &[], None),
+        dev("usb1", 0, 0, "", "xhci-hcd", "", 0x09, &[], None, 0),
+        dev("1-1", 0x046d, 0xc52b, "Logitech", "Unifying Receiver", "12", 0x00, &[0x03], Some(98), 0xa0),
+        dev("1-2", 0x07fd, 0x000b, "MOTU", "M2", "480", 0xef, &[0x01, 0x01, 0xff], Some(500), 0x80),
+        dev("1-3", 0x05e3, 0x0610, "Genesys Logic", "USB2.0 Hub", "480", 0x09, &[], Some(100), 0xe0),
+        dev("1-3.1", 0x3434, 0x0121, "Keychron", "Keychron K8", "12", 0x00, &[0x03], Some(500), 0xa0),
+        dev("1-3.2", 0x046d, 0xb034, "Logitech", "MX Master 3S", "12", 0x00, &[0x03], Some(100), 0xa0),
+        dev("usb2", 0, 0, "", "xhci-hcd", "", 0x09, &[], None, 0),
     ];
     if (6..24).contains(&t) {
         devices.push(dev(
-            "2-1", 0x0781, 0x558c, "SanDisk", "Extreme SSD", "10000", 0x00, &[0x08], Some(896),
+            "2-1", 0x0781, 0x558c, "SanDisk", "Extreme SSD", "10000", 0x00, &[0x08], Some(896), 0x80,
         ));
     }
     if !(14..20).contains(&t) {
         devices.push(dev(
             "2-3", 0x046d, 0x082d, "Logitech", "HD Pro Webcam C920", "480", 0xef, &[0x0e, 0x01],
-            Some(500),
+            Some(500), 0x80,
         ));
     }
     devices.sort_by_key(|d| sort_key(&d.name));
     devices
+}
+
+/// Demo bcdUSB (USB spec level) implied by the negotiated speed string.
+fn demo_usb_version(speed: &str) -> u16 {
+    match speed {
+        "10000" => 0x0320,
+        "5000" => 0x0300,
+        "480" => 0x0200,
+        "12" | "1.5" => 0x0110,
+        _ => 0,
+    }
 }
 
 /// Representative interfaces/endpoints for `--demo` devices, so the detail
@@ -614,42 +680,44 @@ fn demo_interfaces(name: &str) -> Vec<Interface> {
         max_packet,
         interval,
     };
-    let iface = |number, class, subclass, protocol, endpoints| Interface {
+    let iface = |number, class, subclass, protocol, iname: &str, endpoints| Interface {
         number,
         alt: 0,
         class,
         subclass,
         protocol,
+        name: (!iname.is_empty()).then(|| iname.into()),
         endpoints,
     };
     match name {
         "1-1" => vec![
-            iface(0, 0x03, 0x01, 0x01, vec![ep(0x81, 3, 8, 8)]),
-            iface(1, 0x03, 0x00, 0x00, vec![ep(0x82, 3, 32, 2)]),
+            iface(0, 0x03, 0x01, 0x01, "", vec![ep(0x81, 3, 8, 8)]),
+            iface(1, 0x03, 0x00, 0x00, "", vec![ep(0x82, 3, 32, 2)]),
         ],
         "1-2" => vec![
-            iface(0, 0x01, 0x01, 0x00, vec![]),
-            iface(1, 0x01, 0x02, 0x00, vec![ep(0x01, 1, 294, 1)]),
-            iface(2, 0x01, 0x02, 0x00, vec![ep(0x82, 1, 294, 1)]),
-            iface(3, 0xff, 0x00, 0x00, vec![ep(0x83, 3, 4, 8)]),
+            iface(0, 0x01, 0x01, 0x00, "Audio Control", vec![]),
+            iface(1, 0x01, 0x02, 0x00, "Audio Out", vec![ep(0x01, 1, 294, 1)]),
+            iface(2, 0x01, 0x02, 0x00, "Audio In", vec![ep(0x82, 1, 294, 1)]),
+            iface(3, 0xff, 0x00, 0x00, "", vec![ep(0x83, 3, 4, 8)]),
         ],
         "1-3.1" => vec![
-            iface(0, 0x03, 0x01, 0x01, vec![ep(0x81, 3, 8, 10)]),
-            iface(1, 0x03, 0x00, 0x00, vec![ep(0x82, 3, 16, 10)]),
+            iface(0, 0x03, 0x01, 0x01, "", vec![ep(0x81, 3, 8, 10)]),
+            iface(1, 0x03, 0x00, 0x00, "", vec![ep(0x82, 3, 16, 10)]),
         ],
-        "1-3.2" => vec![iface(0, 0x03, 0x01, 0x02, vec![ep(0x81, 3, 8, 8)])],
+        "1-3.2" => vec![iface(0, 0x03, 0x01, 0x02, "", vec![ep(0x81, 3, 8, 8)])],
         "2-1" => vec![iface(
             0,
             0x08,
             0x06,
             0x50,
+            "Mass Storage",
             vec![ep(0x81, 2, 1024, 0), ep(0x02, 2, 1024, 0)],
         )],
         "2-3" => vec![
-            iface(0, 0x0e, 0x01, 0x00, vec![ep(0x87, 3, 16, 8)]),
-            iface(1, 0x0e, 0x02, 0x00, vec![ep(0x81, 1, 3072, 1)]),
-            iface(2, 0x01, 0x01, 0x00, vec![]),
-            iface(3, 0x01, 0x02, 0x00, vec![ep(0x86, 1, 192, 4)]),
+            iface(0, 0x0e, 0x01, 0x00, "Video Control", vec![ep(0x87, 3, 16, 8)]),
+            iface(1, 0x0e, 0x02, 0x00, "Video Stream", vec![ep(0x81, 1, 3072, 1)]),
+            iface(2, 0x01, 0x01, 0x00, "", vec![]),
+            iface(3, 0x01, 0x02, 0x00, "", vec![ep(0x86, 1, 192, 4)]),
         ],
         _ => Vec::new(),
     }
@@ -732,8 +800,13 @@ mod tests {
             product: None,
             serial: None,
             speed: "480".into(),
+            usb_version: 0x0200,
+            device_version: 0x0100,
             class,
+            subclass: 0,
+            protocol: 0,
             iface_classes: ifaces.to_vec(),
+            config_attributes: None,
             devnum: 0,
             max_power_ma: None,
             interfaces: Vec::new(),
@@ -756,7 +829,8 @@ mod tests {
             9, 4, 0, 0, 1, 0x08, 0x06, 0x50, 0,
             7, 5, 0x81, 0x02, 0x00, 0x02, 0,
         ];
-        let ifaces = parse_interfaces(&config);
+        let (attrs, ifaces) = parse_config(&config);
+        assert_eq!(attrs, Some(0x80)); // bmAttributes byte from the config descriptor
         assert_eq!(ifaces.len(), 1);
         let i = &ifaces[0];
         assert_eq!((i.class, i.subclass, i.protocol), (0x08, 0x06, 0x50));
@@ -771,7 +845,7 @@ mod tests {
         let mut sysfs = vec![18, 1];
         sysfs.extend(std::iter::repeat_n(0, 16));
         sysfs.extend_from_slice(&config);
-        assert_eq!(parse_interfaces(&sysfs), ifaces);
+        assert_eq!(parse_config(&sysfs), (attrs, ifaces));
     }
 
     #[test]
