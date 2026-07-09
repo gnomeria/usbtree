@@ -37,13 +37,7 @@ Live per-device activity is Linux-only: macOS and Windows expose no unprivileged
 curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh
 ```
 
-Downloads the latest release for your platform, verifies its sha256 against `checksums.txt`, and installs to `/usr/local/bin` (if writable) or `~/.local/bin`. Customize with environment variables:
-
-| Variable              | Effect                                                     |
-| --------------------- | ---------------------------------------------------------- |
-| `USBTREE_VERSION`     | install a specific version, e.g. `0.0.1` (default: latest) |
-| `USBTREE_INSTALL_DIR` | install directory override                                 |
-| `USBTREE_SUDO_SYMLINK`| `1` → symlink into `/usr/local/bin` (via `sudo`) so `sudo usbtree` works for usbmon bytes/s |
+Downloads the latest release for your platform, verifies its sha256 against `checksums.txt`, and installs to `/usr/local/bin` (if writable) or `~/.local/bin`.
 
 ### PowerShell script (Windows)
 
@@ -51,14 +45,17 @@ Downloads the latest release for your platform, verifies its sha256 against `che
 irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex
 ```
 
-Downloads the latest release, verifies its sha256 against `checksums.txt`, installs to `%LOCALAPPDATA%\usbtree\bin`, and adds that directory to your user `PATH`. Override with environment variables:
+Downloads the latest release, verifies its sha256 against `checksums.txt`, installs to `%LOCALAPPDATA%\usbtree\bin`, and adds that directory to your user `PATH`. The binaries are unsigned — see the note below if SmartScreen warns.
 
-| Variable              | Effect                                                     |
-| --------------------- | ---------------------------------------------------------- |
-| `USBTREE_VERSION`     | install a specific version, e.g. `0.0.1` (default: latest) |
-| `USBTREE_INSTALL_DIR` | install directory override                                 |
+### Installer environment variables
 
-The binaries are unsigned — see the note below if SmartScreen warns.
+Both installers read the same variables (prefix with `$env:` in PowerShell):
+
+| Variable               | Effect                                                     |
+| ---------------------- | ---------------------------------------------------------- |
+| `USBTREE_VERSION`      | install a specific version, e.g. `0.0.1` (default: latest) |
+| `USBTREE_INSTALL_DIR`  | install directory override                                 |
+| `USBTREE_SUDO_SYMLINK` | Linux/macOS only — `1` → symlink into `/usr/local/bin` (via `sudo`) so `sudo usbtree` works for usbmon bytes/s |
 
 ### Prebuilt binaries
 
