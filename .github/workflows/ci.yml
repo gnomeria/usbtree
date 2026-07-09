@@ -9,6 +9,7 @@ permissions:
   contents: read
 jobs:
   test:
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
