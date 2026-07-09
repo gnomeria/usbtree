@@ -18,5 +18,7 @@ exclude = [
 
 [dependencies]
 nusb = "0.2.4"
+pci-ids = "0.2.6"
+pci-info = "0.3.4"
 ratatui = "0.30.2"
 usb-ids = "1.2026.6"

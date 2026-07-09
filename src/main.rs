@@ -1,4 +1,5 @@
 mod metrics;
+mod pci;
 mod usb;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -18,6 +19,7 @@ use ratatui::widgets::{
 };
 
 use metrics::Metrics;
+use pci::PciDevice;
 use usb::Device;
 
 const RESCAN_INTERVAL: Duration = Duration::from_secs(1);
@@ -59,6 +61,36 @@ fn class_color(class: u8) -> Color {
         0x08 => theme::YELLOW,              // storage
         0x09 => theme::SKY,                 // hub
         _ => theme::TEXT,
+    }
+}
+
+/// One hue per PCI base class (numbering differs from USB: 0x01 = storage,
+/// 0x02 = network, 0x03 = display …).
+fn pci_class_color(class: u8) -> Color {
+    match class {
+        0x01 => theme::YELLOW,        // mass storage
+        0x02 => theme::GREEN,         // network
+        0x03 => theme::MAUVE,         // display
+        0x04 => theme::TEAL,          // multimedia
+        0x06 => theme::SKY,           // bridge
+        0x07 => theme::PEACH,         // comm
+        0x0c => theme::BLUE,          // serial bus (USB/thunderbolt)
+        0x0d => theme::GREEN,         // wireless
+        _ => theme::TEXT,
+    }
+}
+
+fn pci_icon(class: u8) -> &'static str {
+    match class {
+        0x01 => "💾",
+        0x02 => "🌐",
+        0x03 => "🖥️",
+        0x04 => "🎬",
+        0x06 => "🌉",
+        0x07 => "📞",
+        0x0c => "🔌",
+        0x0d => "📶",
+        _ => "🔹",
     }
 }
 
@@ -225,6 +257,11 @@ fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
 
 fn main() -> std::io::Result<()> {
     let demo = std::env::args().any(|a| a == "--demo");
+    // ponytail: spike — PCI is dump-only for now, no TUI tab yet
+    if std::env::args().any(|a| a == "--pci") {
+        pci::dump();
+        return Ok(());
+    }
     if std::env::args().any(|a| a == "--dump") {
         dump(demo);
         return Ok(());
@@ -305,6 +342,29 @@ fn event_entry(stamp: &str, added: bool, d: &Device) -> LogEvent {
 enum Focus {
     Tree,
     Events,
+}
+
+/// Which device bus the TUI is showing. USB is the full live view; PCI is a
+/// read-only bus-grouped tree (`p` toggles).
+#[derive(PartialEq, Clone, Copy)]
+enum Tab {
+    Usb,
+    Pci,
+}
+
+/// One row of the PCI tree: a "segment:bus" header, or a device (index into
+/// `App::pci`).
+enum PciRow {
+    Bus(String),
+    Dev(usize),
+}
+
+/// A stable handle to the selected PCI row, snapshotted before a rescan so the
+/// selection can be restored by identity (device address / bus name) rather than
+/// row index, which shifts as devices come and go.
+enum PciSel {
+    Dev(String),
+    Bus(String),
 }
 
 /// Live tree filter (opened with `/`). `editing` = keystrokes go to `query`;
@@ -411,6 +471,13 @@ struct App {
     menu: Option<ContextMenu>,
     /// live tree filter (`/`), if any
     filter: Option<Filter>,
+    /// which bus view is shown (USB / PCI)
+    tab: Tab,
+    /// PCI devices (flat, address-sorted); only refreshed while the PCI tab is up
+    pci: Vec<PciDevice>,
+    /// computed PCI tree rows (bus headers + devices), collapse/filter applied
+    pci_rows: Vec<PciRow>,
+    pci_list: ListState,
 }
 
 impl App {
@@ -464,6 +531,10 @@ impl App {
             log_rect: Rect::default(),
             menu: None,
             filter: None,
+            tab: Tab::Usb,
+            pci: Vec::new(),
+            pci_rows: Vec::new(),
+            pci_list: ListState::default(),
         }
     }
 
@@ -489,21 +560,30 @@ impl App {
                             KeyCode::Esc if self.filter.is_some() => self.clear_filter(),
                             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                             KeyCode::Char('/') => self.open_filter(),
-                            KeyCode::Tab | KeyCode::BackTab => self.toggle_focus(),
+                            KeyCode::Char('p') => self.toggle_tab(),
+                            KeyCode::Tab | KeyCode::BackTab if self.tab == Tab::Usb => {
+                                self.toggle_focus()
+                            }
                             KeyCode::Down | KeyCode::Char('j') => self.nav(1),
                             KeyCode::Up | KeyCode::Char('k') => self.nav(-1),
                             KeyCode::Char('g') | KeyCode::Home => self.nav_to(0),
                             KeyCode::Char('G') | KeyCode::End => self.nav_to(isize::MAX),
-                            KeyCode::Enter | KeyCode::Char(' ') => self.fold(None),
-                            KeyCode::Left | KeyCode::Char('h') => self.fold(Some(true)),
-                            KeyCode::Right | KeyCode::Char('l') => self.fold(Some(false)),
+                            KeyCode::Enter | KeyCode::Char(' ') if self.tab == Tab::Usb => {
+                                self.fold(None)
+                            }
+                            KeyCode::Left | KeyCode::Char('h') if self.tab == Tab::Usb => {
+                                self.fold(Some(true))
+                            }
+                            KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Usb => {
+                                self.fold(Some(false))
+                            }
                             KeyCode::Char('r') => self.rescan(),
-                            KeyCode::Char('y') => self.yank(false),
-                            KeyCode::Char('Y') => self.yank(true),
+                            KeyCode::Char('y') if self.tab == Tab::Usb => self.yank(false),
+                            KeyCode::Char('Y') if self.tab == Tab::Usb => self.yank(true),
                             _ => {}
                         }
                     }
-                    Event::Mouse(m) => self.on_mouse(m),
+                    Event::Mouse(m) if self.tab == Tab::Usb => self.on_mouse(m),
                     _ => {}
                 }
             }
@@ -555,6 +635,101 @@ impl App {
         self.rebuild_rows();
     }
 
+    /// Switch USB ⇄ PCI. Entering PCI enumerates (or uses demo data) and parks
+    /// the selection on the first row.
+    fn toggle_tab(&mut self) {
+        self.menu = None;
+        self.tab = match self.tab {
+            Tab::Usb => Tab::Pci,
+            Tab::Pci => Tab::Usb,
+        };
+        if self.tab == Tab::Pci {
+            self.pci_rescan();
+            if self.pci_list.selected().is_none() && !self.pci_rows.is_empty() {
+                self.pci_list.select(Some(0));
+            }
+        }
+    }
+
+    /// Re-enumerate PCI and rebuild its rows, keeping the selection on the same
+    /// address if it survived. Snapshot the addr *before* swapping `self.pci` —
+    /// the new scan may have a different device count, so the old `pci_rows`
+    /// indices no longer line up with the new vec.
+    fn pci_rescan(&mut self) {
+        let keep = self.pci_selected_key();
+        self.pci = if self.demo { pci::demo_scan() } else { pci::scan() };
+        self.rebuild_pci_rows_keeping(keep);
+    }
+
+    /// Selected PCI device index, if a device row (not a bus header) is selected.
+    fn pci_selected(&self) -> Option<usize> {
+        match self.pci_rows.get(self.pci_list.selected()?)? {
+            PciRow::Dev(i) => Some(*i),
+            PciRow::Bus(_) => None,
+        }
+    }
+
+    /// Identity of the selected row (device address or bus name), for restoring
+    /// selection across a rescan. Reads `pci_rows` and `pci` together, so only
+    /// valid while the two are in sync (call before swapping `self.pci`).
+    fn pci_selected_key(&self) -> Option<PciSel> {
+        match self.pci_rows.get(self.pci_list.selected()?)? {
+            PciRow::Dev(i) => Some(PciSel::Dev(self.pci[*i].addr.clone())),
+            PciRow::Bus(b) => Some(PciSel::Bus(b.clone())),
+        }
+    }
+
+    /// Group address-sorted devices into bus-headed rows, applying the filter.
+    fn compute_pci_rows(&self) -> Vec<PciRow> {
+        let q = self.filter.as_ref().map(|f| f.query.to_lowercase());
+        let mut rows = Vec::new();
+        let mut cur = String::new();
+        for (i, d) in self.pci.iter().enumerate() {
+            if let Some(q) = &q
+                && !q.is_empty()
+                && !d.matches(q)
+            {
+                continue;
+            }
+            if d.bus() != cur {
+                cur = d.bus().to_string();
+                rows.push(PciRow::Bus(cur.clone()));
+            }
+            rows.push(PciRow::Dev(i));
+        }
+        rows
+    }
+
+    /// Recompute PCI rows (filter applied) and keep the selection on the same
+    /// device address if it survived, else clamp to the top. Use when `self.pci`
+    /// is unchanged (e.g. filter edits); rescans use `rebuild_pci_rows_keeping`.
+    fn rebuild_pci_rows(&mut self) {
+        let keep = self.pci_selected_key();
+        self.rebuild_pci_rows_keeping(keep);
+    }
+
+    /// Rebuild rows and restore the selection to `keep` (snapshotted from the
+    /// pre-scan state). If that row is gone, hold the previous index (clamped)
+    /// rather than snapping to the top — a bus header has no address, so an
+    /// index fallback is what keeps the cursor put across ticks.
+    fn rebuild_pci_rows_keeping(&mut self, keep: Option<PciSel>) {
+        let prev = self.pci_list.selected();
+        self.pci_rows = self.compute_pci_rows();
+        if self.pci_rows.is_empty() {
+            self.pci_list.select(None);
+            return;
+        }
+        let pos = keep.and_then(|k| {
+            self.pci_rows.iter().position(|r| match (&k, r) {
+                (PciSel::Dev(a), PciRow::Dev(i)) => &self.pci[*i].addr == a,
+                (PciSel::Bus(b), PciRow::Bus(s)) => s == b,
+                _ => false,
+            })
+        });
+        let fallback = prev.unwrap_or(0).min(self.pci_rows.len() - 1);
+        self.pci_list.select(Some(pos.unwrap_or(fallback)));
+    }
+
     /// Handle a keystroke while typing in the filter box.
     fn filter_key(&mut self, code: KeyCode) {
         match code {
@@ -585,6 +760,9 @@ impl App {
     /// Recompute the displayed rows (collapse + filter) and keep the selection
     /// on the same device if it survived, else clamp to the top.
     fn rebuild_rows(&mut self) {
+        if self.tab == Tab::Pci {
+            return self.rebuild_pci_rows();
+        }
         let name = self
             .list
             .selected()
@@ -737,9 +915,10 @@ impl App {
     /// Move the selection in the focused pane. Selection drives ratatui's List
     /// scroll; in the events pane a higher index is an older entry (newest-first).
     fn nav(&mut self, delta: isize) {
-        let (state, len) = match self.focus {
-            Focus::Tree => (&mut self.list, self.rows.len()),
-            Focus::Events => (&mut self.log_state, self.log.len()),
+        let (state, len) = match (self.tab, self.focus) {
+            (Tab::Pci, _) => (&mut self.pci_list, self.pci_rows.len()),
+            (_, Focus::Tree) => (&mut self.list, self.rows.len()),
+            (_, Focus::Events) => (&mut self.log_state, self.log.len()),
         };
         if len == 0 {
             return;
@@ -751,9 +930,10 @@ impl App {
 
     /// Jump to an absolute row in the focused pane (`0` = top, `isize::MAX` = bottom).
     fn nav_to(&mut self, idx: isize) {
-        let (state, len) = match self.focus {
-            Focus::Tree => (&mut self.list, self.rows.len()),
-            Focus::Events => (&mut self.log_state, self.log.len()),
+        let (state, len) = match (self.tab, self.focus) {
+            (Tab::Pci, _) => (&mut self.pci_list, self.pci_rows.len()),
+            (_, Focus::Tree) => (&mut self.list, self.rows.len()),
+            (_, Focus::Events) => (&mut self.log_state, self.log.len()),
         };
         if len == 0 {
             return;
@@ -796,6 +976,9 @@ impl App {
 
     fn rescan(&mut self) {
         self.last_scan = Instant::now();
+        if self.tab == Tab::Pci {
+            self.pci_rescan();
+        }
         let new = if self.demo {
             usb::demo_scan(self.started.elapsed().as_secs())
         } else {
@@ -907,6 +1090,9 @@ impl App {
     }
 
     fn draw(&mut self, f: &mut Frame) {
+        if self.tab == Tab::Pci {
+            return self.draw_pci(f);
+        }
         let [header, main, log_area, help] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(5),
@@ -954,6 +1140,7 @@ impl App {
                 ("/", "filter"),
                 ("tab", "focus"),
                 ("y/Y", "yank"),
+                ("p", "pci"),
                 ("r", "rescan"),
                 ("q", "quit"),
             ];
@@ -1348,6 +1535,204 @@ impl App {
             list = list.highlight_style(Style::new().bg(theme::SEL_BG));
         }
         f.render_stateful_widget(list, area, &mut self.log_state);
+    }
+
+    /// PCI tab: a read-only bus-grouped tree + detail. No events/metrics pane —
+    /// PCI has no per-device traffic or hot-plug worth showing.
+    fn draw_pci(&mut self, f: &mut Frame) {
+        let [header, main, help] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(5),
+            Constraint::Length(1),
+        ])
+        .areas(f.area().inner(Margin::new(1, 0)));
+        let [tree_area, detail_area] =
+            Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
+                .areas(main);
+        self.screen = f.area();
+        self.tree_rect = tree_area;
+
+        self.draw_pci_header(f, header);
+        self.draw_pci_tree(f, tree_area);
+        self.draw_pci_detail(f, detail_area);
+
+        let keys = [
+            ("j/k", "move"),
+            ("g/G", "top/bottom"),
+            ("/", "filter"),
+            ("p", "usb view"),
+            ("r", "rescan"),
+            ("q", "quit"),
+        ];
+        let mut spans = vec![Span::raw(" ")];
+        for (key, desc) in keys {
+            spans.push(key.fg(theme::ACCENT).bold());
+            spans.push(format!(" {desc}   ").fg(theme::DIM));
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)), help);
+        let ver = env!("CARGO_PKG_VERSION");
+        f.render_widget(
+            Paragraph::new(Line::from(format!("v{ver} ").fg(theme::FAINT)))
+                .alignment(Alignment::Right),
+            help,
+        );
+    }
+
+    fn draw_pci_header(&self, f: &mut Frame, area: Rect) {
+        let buses = self
+            .pci_rows
+            .iter()
+            .filter(|r| matches!(r, PciRow::Bus(_)))
+            .count();
+        let line = Line::from(vec![
+            Span::styled(
+                " usbtree ",
+                Style::new().bg(theme::PILL).fg(theme::PILL_FG).bold(),
+            ),
+            "  ".into(),
+            "usb".fg(theme::DIM),
+            " · ".fg(theme::FAINT),
+            "pci".fg(theme::ACCENT).bold(),
+            "  ·  ".fg(theme::FAINT),
+            self.pci.len().to_string().fg(theme::TEXT).bold(),
+            " devices".fg(theme::DIM),
+            "  ·  ".fg(theme::FAINT),
+            buses.to_string().fg(theme::TEXT).bold(),
+            " buses".fg(theme::DIM),
+        ]);
+        f.render_widget(Paragraph::new(line), area);
+    }
+
+    fn draw_pci_tree(&mut self, f: &mut Frame, area: Rect) {
+        let block = match &self.filter {
+            Some(flt) => {
+                let title = Line::from(vec![
+                    " / ".fg(theme::ACCENT).bold(),
+                    format!("{}{}", flt.query, if flt.editing { "▏" } else { "" }).fg(theme::TEXT),
+                ]);
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::new().fg(theme::ACCENT))
+                    .title(title)
+                    .padding(Padding::horizontal(1))
+            }
+            None => pane("✦ pci"),
+        };
+        if self.pci_rows.is_empty() {
+            let msg = if self.filter.is_some() {
+                "no matches"
+            } else {
+                "no PCI devices (backend may be unsupported here)"
+            };
+            f.render_widget(Paragraph::new(msg.fg(theme::DIM).italic()).block(block), area);
+            return;
+        }
+        // rails only read the depth: bus header = 0, device = 1
+        let depths: Vec<(usize, usize)> = self
+            .pci_rows
+            .iter()
+            .map(|r| (matches!(r, PciRow::Dev(_)) as usize, 0))
+            .collect();
+        let rails = rails(&depths);
+        let selected = self.pci_list.selected();
+        let items: Vec<ListItem> = self
+            .pci_rows
+            .iter()
+            .enumerate()
+            .map(|(row, r)| {
+                let sel = if selected == Some(row) {
+                    "▌ ".fg(theme::ACCENT)
+                } else {
+                    Span::raw("  ")
+                };
+                match r {
+                    PciRow::Bus(bus) => ListItem::new(Line::from(vec![
+                        sel,
+                        format!(" {bus} ").fg(theme::ACCENT).bold(),
+                    ])),
+                    PciRow::Dev(i) => {
+                        let d = &self.pci[*i];
+                        ListItem::new(Line::from(vec![
+                            sel,
+                            Span::styled(
+                                format!(" {:<10.10} ", d.class_group()),
+                                Style::new().fg(pci_class_color(d.class)).bg(theme::SURFACE),
+                            ),
+                            Span::raw(" "),
+                            rails[row].clone().fg(theme::FAINT),
+                            format!("{} ", pci_icon(d.class)).into(),
+                            format!("{} ", d.label()).fg(theme::TEXT),
+                            d.addr.clone().fg(theme::FAINT),
+                        ]))
+                    }
+                }
+            })
+            .collect();
+        let list = List::new(items)
+            .style(Style::new().fg(theme::TEXT))
+            .block(block)
+            .scroll_padding(2)
+            .highlight_style(Style::new().bg(theme::SEL_BG));
+        f.render_stateful_widget(list, area, &mut self.pci_list);
+    }
+
+    fn draw_pci_detail(&self, f: &mut Frame, area: Rect) {
+        let block = pane("details");
+        let Some(i) = self.pci_selected() else {
+            f.render_widget(block, area);
+            return;
+        };
+        let d = &self.pci[i];
+        let key = |k: &str| format!("{k:<10}").fg(theme::DIM);
+        let mut lines = vec![
+            Line::from(format!("{} {}", pci_icon(d.class), d.label()).fg(theme::TEXT).bold()),
+            Line::from(d.vendor_name().fg(theme::DIM)),
+            Line::from("─".repeat(24).fg(theme::FAINT)),
+            Line::from(vec![key("address"), d.addr.clone().fg(theme::TEXT)]),
+            Line::from(vec![
+                key("vid:pid"),
+                format!("{:04x}:{:04x}", d.vid, d.pid).fg(theme::ACCENT),
+            ]),
+            Line::from(vec![
+                key("class"),
+                d.class_name().fg(pci_class_color(d.class)),
+                format!("  {:02x}:{:02x}:{:02x}", d.class, d.subclass, d.prog_if).fg(theme::FAINT),
+            ]),
+        ];
+        if let Some(pif) = d.prog_if_name() {
+            lines.push(Line::from(vec![key("interface"), pif.fg(theme::TEXT)]));
+        }
+        lines.push(Line::from(vec![
+            key("revision"),
+            format!("{:02x}", d.revision).fg(theme::TEXT),
+        ]));
+        if let Some((v, p)) = d.subsystem {
+            let val = d.subsystem_name().unwrap_or_else(|| format!("{v:04x}:{p:04x}"));
+            lines.push(Line::from(vec![key("subsystem"), val.fg(theme::TEXT)]));
+        }
+        if let Some(l) = &d.link {
+            let mut spans = vec![
+                key("link"),
+                format!("x{} {}", l.cur_width, l.cur_speed).fg(theme::TEXT),
+            ];
+            if l.throttled() {
+                spans.push(format!("  ↓max x{} {}", l.max_width, l.max_speed).fg(theme::PEACH));
+            }
+            lines.push(Line::from(spans));
+        }
+        if let Some(drv) = &d.driver {
+            lines.push(Line::from(vec![key("driver"), drv.clone().fg(theme::TEXT)]));
+        }
+        if let Some(n) = d.numa_node {
+            lines.push(Line::from(vec![key("numa"), n.to_string().fg(theme::TEXT)]));
+        }
+        if let Some(g) = &d.iommu_group {
+            lines.push(Line::from(vec![key("iommu"), g.clone().fg(theme::TEXT)]));
+        }
+        if let Some(ps) = &d.power_state {
+            lines.push(Line::from(vec![key("power"), ps.clone().fg(theme::TEXT)]));
+        }
+        f.render_widget(Paragraph::new(lines).block(block), area);
     }
 }
 
