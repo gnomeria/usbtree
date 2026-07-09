@@ -225,10 +225,20 @@ pub fn class_name(class: u8) -> &'static str {
 /// from each device's port chain, matching Linux sysfs naming.
 pub fn scan() -> Vec<Device> {
     let mut devices = Vec::new();
+    // Windows bus ids are opaque PnP paths ("PCIROOT(0)#...#USBROOT(0)"), not
+    // small integers — map each distinct id to a clean bus number so names read
+    // "usb1"/"1-16", not the raw path. Same id -> same label keeps hub and its
+    // devices linked via parent_name().
+    let mut labels: HashMap<String, String> = HashMap::new();
+    let mut next_bus = 1u32;
     if let Ok(buses) = nusb::list_buses().wait() {
         for bus in buses {
+            let label = labels
+                .entry(bus.bus_id().to_string())
+                .or_insert_with(|| bus_label(bus.bus_id(), &mut next_bus))
+                .clone();
             devices.push(Device {
-                name: format!("usb{}", tidy_bus(bus.bus_id())),
+                name: format!("usb{label}"),
                 vid: 0,
                 pid: 0,
                 manufacturer: bus.driver().map(str::to_string),
@@ -257,8 +267,12 @@ pub fn scan() -> Vec<Device> {
         }
         let path: Vec<String> = chain.iter().map(u8::to_string).collect();
         let (max_power_ma, interfaces) = descriptors(&d);
+        let label = labels
+            .get(d.bus_id())
+            .cloned()
+            .unwrap_or_else(|| bus_label(d.bus_id(), &mut next_bus));
         devices.push(Device {
-            name: format!("{}-{}", tidy_bus(d.bus_id()), path.join(".")),
+            name: format!("{label}-{}", path.join(".")),
             vid: d.vendor_id(),
             pid: d.product_id(),
             manufacturer: d.manufacturer_string().map(str::to_string),
@@ -357,6 +371,23 @@ fn tidy_bus(id: &str) -> &str {
     } else {
         t
     }
+}
+
+/// Clean display bus number for a raw nusb bus id. Linux/macOS ids are already
+/// numeric ("001" -> "1"). Windows ids are opaque PnP location paths; those get
+/// a synthesized sequential number (`next`) so the tree stays compact and hubs
+/// on separate controllers never collide.
+// ponytail: a real platform is homogeneous (all-numeric or all-path), so synth
+// numbers can't collide with a passthrough number. Mixed ids would need next to
+// start past the max numeric id.
+fn bus_label(raw: &str, next: &mut u32) -> String {
+    let t = tidy_bus(raw);
+    if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
+        return t.to_string();
+    }
+    let n = *next;
+    *next += 1;
+    n.to_string()
 }
 
 fn speed_mbps(s: nusb::Speed) -> String {
@@ -845,6 +876,19 @@ C 03  Human Interface Device\n\
         let (added, removed) = diff(&after, &before);
         assert_eq!(removed.len(), 1);
         assert!(added.is_empty());
+    }
+
+    #[test]
+    fn bus_label_passes_numeric_synths_windows_paths() {
+        let mut n = 1;
+        assert_eq!(bus_label("001", &mut n), "1"); // Linux
+        assert_eq!(bus_label("42", &mut n), "42"); // macOS
+        // Windows opaque paths -> sequential synth, distinct paths distinct nums
+        assert_eq!(bus_label("PCIROOT(0)#PCI(0201)#PCI(0000)#USBROOT(0)", &mut n), "1");
+        assert_eq!(bus_label("PCIROOT(0)#PCI(0201)#PCI(0000)#USBROOT(1)", &mut n), "2");
+        assert_eq!(n, 3);
+        // synth names still link child -> hub
+        assert_eq!(dev("1-16", 0, 0, 0x03, &[]).parent_name().as_deref(), Some("usb1"));
     }
 
     #[test]
