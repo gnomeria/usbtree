@@ -246,6 +246,16 @@ fn row_at(pane: Rect, offset: usize, len: usize, col: u16, row: u16) -> Option<u
     (idx < len).then_some(idx)
 }
 
+/// A `w`×`h` rect centered within `area` (clamped to fit).
+fn centered(area: Rect, w: u16, h: u16) -> Rect {
+    Rect {
+        x: area.x + area.width.saturating_sub(w) / 2,
+        y: area.y + area.height.saturating_sub(h) / 2,
+        width: w.min(area.width),
+        height: h.min(area.height),
+    }
+}
+
 /// Accent the border of the pane that currently holds keyboard focus.
 fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
     if focused {
@@ -471,6 +481,8 @@ struct App {
     menu: Option<ContextMenu>,
     /// live tree filter (`/`), if any
     filter: Option<Filter>,
+    /// open eject confirmation dialog: the sysfs name pending eject
+    confirm: Option<String>,
     /// which bus view is shown (USB / PCI)
     tab: Tab,
     /// PCI devices (flat, address-sorted); only refreshed while the PCI tab is up
@@ -531,6 +543,7 @@ impl App {
             log_rect: Rect::default(),
             menu: None,
             filter: None,
+            confirm: None,
             tab: Tab::Usb,
             pci: Vec::new(),
             pci_rows: Vec::new(),
@@ -551,6 +564,12 @@ impl App {
                             && self.filter.as_ref().is_some_and(|f| f.editing) =>
                     {
                         self.filter_key(key.code)
+                    }
+                    // eject dialog is modal: it swallows keys until confirmed/cancelled
+                    Event::Key(key)
+                        if key.kind == KeyEventKind::Press && self.confirm.is_some() =>
+                    {
+                        self.confirm_key(key.code)
                     }
                     Event::Key(key) if key.kind == KeyEventKind::Press => {
                         // any keypress dismisses an open menu; Esc then does nothing else
@@ -580,6 +599,7 @@ impl App {
                             KeyCode::Char('r') => self.rescan(),
                             KeyCode::Char('y') if self.tab == Tab::Usb => self.yank(false),
                             KeyCode::Char('Y') if self.tab == Tab::Usb => self.yank(true),
+                            KeyCode::Char('e') if self.tab == Tab::Usb => self.eject_key(),
                             _ => {}
                         }
                     }
@@ -974,6 +994,44 @@ impl App {
         self.copy(&text, &what);
     }
 
+    /// True if the selected row is a storage device (drives the `e` binding, its
+    /// help hint, and the confirm dialog).
+    fn can_eject(&self) -> bool {
+        self.tab == Tab::Usb
+            && self
+                .list
+                .selected()
+                .and_then(|s| self.rows.get(s))
+                .is_some_and(|&(_, i)| self.render[i].effective_class() == 0x08)
+    }
+
+    /// `e`: open the eject confirmation dialog for the selected storage device.
+    fn eject_key(&mut self) {
+        if !self.can_eject() {
+            return;
+        }
+        let Some(&(_, i)) = self.list.selected().and_then(|s| self.rows.get(s)) else {
+            return;
+        };
+        self.menu = None;
+        self.confirm = Some(self.render[i].name.clone());
+    }
+
+    /// Handle a key while the eject dialog is open: `e`/`y`/Enter safely ejects
+    /// (unmount + power off via udisks2, unprivileged); anything else cancels.
+    fn confirm_key(&mut self, code: KeyCode) {
+        let name = self.confirm.take();
+        if let (KeyCode::Char('e' | 'y') | KeyCode::Enter, Some(name)) = (code, name) {
+            let msg = if self.demo {
+                "eject disabled in --demo".into()
+            } else {
+                usb::eject(&name).unwrap_or_else(|e| format!("eject failed: {e}"))
+            };
+            self.toast = Some((msg, Instant::now()));
+            self.rescan();
+        }
+    }
+
     fn rescan(&mut self) {
         self.last_scan = Instant::now();
         if self.tab == Tab::Pci {
@@ -1117,7 +1175,7 @@ impl App {
         let showed_toast = if let Some((msg, t)) = &self.toast
             && t.elapsed() < Duration::from_secs(2)
         {
-            let ok = msg.starts_with("copied");
+            let ok = msg.starts_with("copied") || msg.starts_with("ejected");
             f.render_widget(
                 Paragraph::new(Line::from(vec![
                     if ok { " ✓ " } else { " ✗ " }
@@ -1132,7 +1190,7 @@ impl App {
             false
         };
         if !showed_toast {
-            let keys = [
+            let mut keys = vec![
                 ("j/k", "move"),
                 ("↵", "toggle"),
                 ("h/l", "fold/unfold"),
@@ -1140,10 +1198,11 @@ impl App {
                 ("/", "filter"),
                 ("tab", "focus"),
                 ("y/Y", "yank"),
-                ("p", "pci"),
-                ("r", "rescan"),
-                ("q", "quit"),
             ];
+            if self.can_eject() {
+                keys.push(("e", "eject"));
+            }
+            keys.extend([("p", "pci"), ("r", "rescan"), ("q", "quit")]);
             let mut spans = vec![Span::raw(" ")];
             for (key, desc) in keys {
                 spans.push(key.fg(theme::ACCENT).bold());
@@ -1187,6 +1246,40 @@ impl App {
                 List::new(items).style(Style::new().fg(theme::TEXT)).block(block),
                 menu.rect,
             );
+        }
+
+        // eject confirmation dialog floats centered above everything
+        if let Some(name) = &self.confirm {
+            let label = self
+                .render
+                .iter()
+                .find(|d| &d.name == name)
+                .map(|d| format!("{} {}", d.icon(), d.label()))
+                .unwrap_or_else(|| name.clone());
+            let body = vec![
+                Line::from(format!("Safely eject {name}?").fg(theme::TEXT).bold()),
+                Line::from(label.fg(theme::DIM)),
+                Line::from(""),
+                Line::from(vec![
+                    " unmounts and powers off the drive".fg(theme::FAINT),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    " e ".fg(theme::PILL_FG).bg(theme::PILL).bold(),
+                    " confirm    ".fg(theme::DIM),
+                    " esc ".fg(theme::TEXT).bg(theme::SURFACE),
+                    " cancel".fg(theme::DIM),
+                ]),
+            ];
+            let w = body.iter().map(Line::width).max().unwrap_or(30) as u16 + 4;
+            let rect = centered(self.screen, w, body.len() as u16 + 2);
+            f.render_widget(Clear, rect);
+            let block = Block::bordered()
+                .border_type(BorderType::Rounded)
+                .border_style(Style::new().fg(theme::ROSE))
+                .title(Line::from(" eject ".fg(theme::ROSE).bold()))
+                .padding(Padding::horizontal(1));
+            f.render_widget(Paragraph::new(body).block(block), rect);
         }
     }
 
