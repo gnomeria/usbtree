@@ -832,14 +832,43 @@ pub fn eject(name: &str) -> Result<String, String> {
     if disks.is_empty() {
         return Err("no block device found for this port".into());
     }
+    // Eject every backing disk independently: a hub can carry several, and one
+    // busy drive must not abort the rest. Collect outcomes, report at the end.
+    let mut ok = Vec::new();
+    let mut errs = Vec::new();
     for disk in &disks {
+        let mut busy = false;
         for part in partitions(disk) {
-            // ignore failures: the partition may simply not be mounted
-            let _ = udisksctl(&["unmount", "-b", &format!("/dev/{part}")]);
+            // an unmounted partition errors with "not mounted" — harmless; only a
+            // real in-use error blocks power-off, so surface that plainly
+            if let Err(e) = udisksctl(&["unmount", "-b", &format!("/dev/{part}")])
+                && is_busy(&e)
+            {
+                busy = true;
+                errs.push(format!("{part} in use"));
+            }
         }
-        udisksctl(&["power-off", "-b", &format!("/dev/{disk}")])?;
+        if busy {
+            continue; // leave a drive with open files powered — don't risk data loss
+        }
+        match udisksctl(&["power-off", "-b", &format!("/dev/{disk}")]) {
+            Ok(()) => ok.push(disk.clone()),
+            Err(e) => errs.push(format!("{disk}: {e}")),
+        }
     }
-    Ok(format!("ejected {}", disks.join(", ")))
+    match (ok.is_empty(), errs.is_empty()) {
+        (_, true) => Ok(format!("ejected {}", ok.join(", "))),
+        (true, false) => Err(errs.join("; ")),
+        (false, false) => Err(format!("ejected {}; {}", ok.join(", "), errs.join("; "))),
+    }
+}
+
+/// True if a udisksctl error means the device is in use (an open file / mounted
+/// path), vs. a benign "not mounted". A busy drive is left powered, not yanked.
+#[cfg(target_os = "linux")]
+fn is_busy(err: &str) -> bool {
+    let e = err.to_lowercase();
+    e.contains("busy") || e.contains("in use")
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -1031,6 +1060,16 @@ C 03  Human Interface Device\n\
         let child = "../devices/pci0000:00/usb2/2-1/2-1.4/2-1.4:1.0/host6/block/sdb";
         assert!(under_usb_device(child, "2-1"));
         assert!(under_usb_device(child, "2-1.4"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn busy_vs_not_mounted() {
+        assert!(is_busy("Error unmounting /dev/sda1: target is busy"));
+        assert!(is_busy("Device or resource busy"));
+        assert!(is_busy("Object /dev/sda1 is in use"));
+        // benign: an idle partition just isn't mounted — must not block power-off
+        assert!(!is_busy("Error unmounting: not mounted"));
     }
 
     #[test]

@@ -814,6 +814,24 @@
           </p>
         </div>
         <div class="card">
+          <div class="ico">⏏️</div>
+          <h3>Safe eject</h3>
+          <p>
+            Hit <code>e</code> on a USB drive to unmount it and cut port power
+            through udisks2 — a confirmation dialog, then a clean pull. No root,
+            no <code>sudo</code>. <b>Linux only</b> for now.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico">🎛️</div>
+          <h3>PCI view</h3>
+          <p>
+            Press <code>p</code> to flip to a flat PCI device list with a detail
+            pane — prog-if, subsystem, link speed/width, NUMA node, IOMMU group,
+            and power state.
+          </p>
+        </div>
+        <div class="card">
           <div class="ico">🦀</div>
           <h3>Pure Rust, zero setup</h3>
           <p>
@@ -884,6 +902,12 @@
             </tr>
             <tr>
               <td>Real bandwidth <span class="dim">usbmon bytes/s, root</span></td>
+              <td class="yes">✓</td>
+              <td class="no">—</td>
+              <td class="no">—</td>
+            </tr>
+            <tr>
+              <td>Safe eject <span class="dim">unmount + power-off, no root</span></td>
               <td class="yes">✓</td>
               <td class="no">—</td>
               <td class="no">—</td>
@@ -981,6 +1005,11 @@
         </div>
         <div class="key"><kbd>h / l · ← →</kbd><span>fold / unfold</span></div>
         <div class="key"><kbd>g / G</kbd><span>jump top / bottom</span></div>
+        <div class="key"><kbd>/</kbd><span>filter tree</span></div>
+        <div class="key"><kbd>Tab</kbd><span>focus tree / events</span></div>
+        <div class="key"><kbd>y / Y</kbd><span>yank id / details</span></div>
+        <div class="key"><kbd>e</kbd><span>safe-eject storage</span></div>
+        <div class="key"><kbd>p</kbd><span>toggle USB / PCI</span></div>
         <div class="key"><kbd>r</kbd><span>force rescan</span></div>
         <div class="key"><kbd>q · Esc</kbd><span>quit</span></div>
       </div>

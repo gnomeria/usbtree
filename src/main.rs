@@ -483,8 +483,14 @@ struct App {
     metrics: Metrics,
     /// per-device activity history, newest last
     rates: HashMap<String, Vec<u64>>,
-    /// transient status line (e.g. "copied …"), shown until it ages out
-    toast: Option<(String, Instant)>,
+    /// transient status line (e.g. "copied …"): (message, raised_at, ok) — `ok`
+    /// drives the ✓/✗ glyph, set by the producer so the UI never sniffs the text
+    toast: Option<(String, Instant, bool)>,
+    /// label of the drive currently being ejected off-thread, if any; shown as a
+    /// persistent "ejecting…" line so a slow power-off never freezes the UI
+    ejecting: Option<String>,
+    /// channel carrying the eject result back from its worker thread
+    eject_rx: Option<Receiver<Result<String, String>>>,
     /// newer release version once the background check finds one (no auto-update)
     update: Option<String>,
     /// one-shot channel carrying the newer version from the check thread
@@ -554,6 +560,8 @@ impl App {
             metrics,
             rates: HashMap::new(),
             toast: None,
+            ejecting: None,
+            eject_rx: None,
             screen: Rect::default(),
             tree_rect: Rect::default(),
             log_rect: Rect::default(),
@@ -631,6 +639,15 @@ impl App {
             {
                 self.update = Some(v);
                 self.update_rx = None;
+            }
+            if let Some(rx) = &self.eject_rx
+                && let Ok(res) = rx.try_recv()
+            {
+                self.eject_rx = None;
+                self.ejecting = None;
+                let ok = res.is_ok();
+                self.toast = Some((res.unwrap_or_else(|e| e), Instant::now(), ok));
+                self.rescan();
             }
         }
     }
@@ -928,13 +945,11 @@ impl App {
 
     /// Copy `text` to the clipboard and raise a toast naming `what`.
     fn copy(&mut self, text: &str, what: &str) {
-        self.toast = Some((
-            match clip(text) {
-                Ok(()) => format!("copied {what}"),
-                Err(e) => format!("copy failed: {e}"),
-            },
-            Instant::now(),
-        ));
+        let (msg, ok) = match clip(text) {
+            Ok(()) => (format!("copied {what}"), true),
+            Err(e) => (format!("copy failed: {e}"), false),
+        };
+        self.toast = Some((msg, Instant::now(), ok));
     }
 
     /// Move the selection in the focused pane. Selection drives ratatui's List
@@ -1012,7 +1027,8 @@ impl App {
 
     /// `e`: open the eject confirmation dialog for the selected storage device.
     fn eject_key(&mut self) {
-        if !self.can_eject() {
+        // one eject at a time — ignore `e` while a power-off is still in flight
+        if !self.can_eject() || self.ejecting.is_some() {
             return;
         }
         let Some(&(_, i)) = self.list.selected().and_then(|s| self.rows.get(s)) else {
@@ -1024,16 +1040,27 @@ impl App {
 
     /// Handle a key while the eject dialog is open: `e`/`y`/Enter safely ejects
     /// (unmount + power off via udisks2, unprivileged); anything else cancels.
+    /// The eject runs on a worker thread — `power-off` syncs and spins the drive
+    /// down, which can block for seconds, and the UI must stay live meanwhile.
     fn confirm_key(&mut self, code: KeyCode) {
         let name = self.confirm.take();
         if let (KeyCode::Char('e' | 'y') | KeyCode::Enter, Some(name)) = (code, name) {
-            let msg = if self.demo {
-                "eject disabled in --demo".into()
-            } else {
-                usb::eject(&name).unwrap_or_else(|e| format!("eject failed: {e}"))
-            };
-            self.toast = Some((msg, Instant::now()));
-            self.rescan();
+            if self.demo {
+                self.toast = Some(("eject disabled in --demo".into(), Instant::now(), false));
+                return;
+            }
+            let label = self
+                .render
+                .iter()
+                .find(|d| d.name == name)
+                .map(|d| d.label())
+                .unwrap_or_else(|| name.clone());
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(usb::eject(&name));
+            });
+            self.eject_rx = Some(rx);
+            self.ejecting = Some(label);
         }
     }
 
@@ -1176,15 +1203,24 @@ impl App {
         self.draw_detail(f, detail_area);
         self.draw_log(f, log_area);
 
-        // fresh toast takes over the help line for a couple seconds, else key hints
-        let showed_toast = if let Some((msg, t)) = &self.toast
-            && t.elapsed() < Duration::from_secs(2)
-        {
-            let ok = msg.starts_with("copied") || msg.starts_with("ejected");
+        // an in-flight eject owns the help line until it finishes (may be seconds);
+        // else a fresh toast for a couple seconds; else the key hints
+        let showed_toast = if let Some(label) = &self.ejecting {
             f.render_widget(
                 Paragraph::new(Line::from(vec![
-                    if ok { " ✓ " } else { " ✗ " }
-                        .fg(if ok { theme::MINT } else { theme::ROSE })
+                    " ⏳ ".fg(theme::ACCENT).bold(),
+                    format!("ejecting {label}…").fg(theme::TEXT),
+                ])),
+                help,
+            );
+            true
+        } else if let Some((msg, t, ok)) = &self.toast
+            && t.elapsed() < Duration::from_secs(2)
+        {
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    if *ok { " ✓ " } else { " ✗ " }
+                        .fg(if *ok { theme::MINT } else { theme::ROSE })
                         .bold(),
                     msg.clone().fg(theme::TEXT),
                 ])),

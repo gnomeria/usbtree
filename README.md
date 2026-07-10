@@ -94,6 +94,9 @@ cargo install --git https://github.com/gnomeria/usbtree   # or clone + cargo bui
 - Live per-device activity (Linux): inline sparklines in the tree plus a bandwidth graph in the detail panel — URBs/s unprivileged, real bytes/s when usbmon is readable (see below)
 - Speed badges with tier glyphs: `▂` low/full, `▄` high (480M), `█` SuperSpeed+ (5G/10G)
 - Detail panel: sysfs path, vid:pid, vendor, class, speed, max power (advertised `bMaxPower`), serial, connected children
+- Safe eject (Linux, unprivileged): `e` on a mass-storage device unmounts it and cuts port power via udisks2 — with a confirmation dialog and no root
+- PCI view (`p`): toggle to a flat, address-sorted PCI device list with a detail pane (prog-if, subsystem, link speed/width, NUMA node, IOMMU group, power state)
+- Live tree filter (`/`) and yank (`y` copies vid:pid, `Y` copies full details) to the clipboard
 - `usbtree --dump` prints the tree once to stdout (no TUI)
 
 ## Usage
@@ -113,6 +116,11 @@ usbtree --demo          # fake device tree with scripted hot-plug + traffic
 | `Enter`/`Space`       | collapse/expand hub |
 | `h`/`←`, `l`/`→`      | fold / unfold       |
 | `g`/`Home`, `G`/`End` | top / bottom        |
+| `/`                   | filter tree         |
+| `Tab`                 | focus tree / events |
+| `y` / `Y`             | yank id / details   |
+| `e`                   | safe-eject storage  |
+| `p`                   | toggle USB / PCI    |
 | `r`                   | force rescan        |
 | `q` / `Esc`           | quit                |
 
