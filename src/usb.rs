@@ -818,6 +818,88 @@ pub fn diff<'a>(old: &'a [Device], new: &'a [Device]) -> (Vec<&'a Device>, Vec<&
     (added, removed)
 }
 
+// ---- safe eject (unprivileged) ----
+
+/// Safely eject the storage device at sysfs `name` (e.g. "2-1"): unmount its
+/// filesystems and cut port power via udisks2. All unprivileged — polkit lets
+/// a local-session user do this for removable drives, no root.
+// ponytail: Linux only. macOS/Windows have unprivileged equivalents (diskutil,
+// CM_Request_Device_Eject) but each needs a USB→disk map (IOKit / SetupAPI) this
+// tool doesn't build yet — wire up when someone runs it there.
+#[cfg(target_os = "linux")]
+pub fn eject(name: &str) -> Result<String, String> {
+    let disks = block_devices(name);
+    if disks.is_empty() {
+        return Err("no block device found for this port".into());
+    }
+    for disk in &disks {
+        for part in partitions(disk) {
+            // ignore failures: the partition may simply not be mounted
+            let _ = udisksctl(&["unmount", "-b", &format!("/dev/{part}")]);
+        }
+        udisksctl(&["power-off", "-b", &format!("/dev/{disk}")])?;
+    }
+    Ok(format!("ejected {}", disks.join(", ")))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn eject(_name: &str) -> Result<String, String> {
+    Err("eject is only supported on Linux for now".into())
+}
+
+/// Whole-disk block device names (e.g. "sda") backing the USB device at sysfs
+/// `name`, found via `/sys/block/*` symlinks whose target path passes through
+/// this device. The `/name/` needle is slash-anchored so "2-1" can't match a
+/// sibling "12-1".
+#[cfg(target_os = "linux")]
+fn block_devices(name: &str) -> Vec<String> {
+    let Ok(entries) = fs::read_dir("/sys/block") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| {
+            fs::read_link(e.path())
+                .map(|t| under_usb_device(&t.to_string_lossy(), name))
+                .unwrap_or(false)
+        })
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
+/// True if a `/sys/block/*` symlink `target` passes through USB device `name`.
+/// Slash-anchored so "2-1" matches only the "/2-1/" path segment, never a
+/// sibling "12-1".
+#[cfg(target_os = "linux")]
+fn under_usb_device(target: &str, name: &str) -> bool {
+    target.contains(&format!("/{name}/"))
+}
+
+/// Partition device names under a whole disk ("sda" -> ["sda1", "sda2"]).
+#[cfg(target_os = "linux")]
+fn partitions(disk: &str) -> Vec<String> {
+    fs::read_dir(format!("/sys/block/{disk}"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(disk))
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn udisksctl(args: &[&str]) -> Result<(), String> {
+    let out = std::process::Command::new("udisksctl")
+        .args(args)
+        .output()
+        .map_err(|e| format!("udisksctl: {e} (install udisks2?)"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -936,6 +1018,19 @@ C 03  Human Interface Device\n\
         let d = dev("1-9", 0x07fd, 0x000b, 0xef, &[0xff, 0x01, 0x01]);
         assert_eq!(d.effective_class(), 0x01);
         assert_eq!(d.class_name(), "Audio");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn block_symlink_slash_anchored() {
+        let t = "../devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host6/target6:0:0/6:0:0:0/block/sda";
+        assert!(under_usb_device(t, "2-1"));
+        assert!(!under_usb_device(t, "12-1")); // sibling id, not a substring match
+        assert!(!under_usb_device(t, "2-2")); // different port
+        // ejecting a hub grabs disks on its downstream ports (path passes through it)
+        let child = "../devices/pci0000:00/usb2/2-1/2-1.4/2-1.4:1.0/host6/block/sdb";
+        assert!(under_usb_device(child, "2-1"));
+        assert!(under_usb_device(child, "2-1.4"));
     }
 
     #[test]
