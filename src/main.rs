@@ -257,7 +257,7 @@ fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
 
 fn main() -> std::io::Result<()> {
     let demo = std::env::args().any(|a| a == "--demo");
-    // ponytail: spike — PCI is dump-only for now, no TUI tab yet
+    // --pci: headless one-shot dump; the interactive PCI view is the Pci tab
     if std::env::args().any(|a| a == "--pci") {
         pci::dump();
         return Ok(());
@@ -418,6 +418,22 @@ fn visible_rows(rows: &[(usize, usize)], matched: &[bool]) -> Vec<(usize, usize)
         .zip(keep)
         .filter_map(|(&row, k)| k.then_some(row))
         .collect()
+}
+
+/// Tree rows to show: honor the collapse set when idle, but a non-empty filter
+/// query flattens the whole tree so matches inside collapsed hubs surface,
+/// with `visible_rows` re-anchoring each match to its ancestor chain.
+fn filtered_rows(render: &[Device], collapsed: &HashSet<String>, query: &str) -> Vec<(usize, usize)> {
+    let q = query.to_lowercase();
+    if q.is_empty() {
+        return usb::flatten(render, collapsed);
+    }
+    let rows = usb::flatten(render, &HashSet::new());
+    let matched: Vec<bool> = rows
+        .iter()
+        .map(|&(_, i)| device_matches(&render[i], &q))
+        .collect();
+    visible_rows(&rows, &matched)
 }
 
 /// Right-click copy menu. Items are (label, clipboard text, toast noun).
@@ -774,21 +790,10 @@ impl App {
             .select((!self.rows.is_empty()).then(|| pos.unwrap_or(0)));
     }
 
-    /// Flatten `render` under the current collapse set, then apply the filter.
-    // ponytail: filter only sees uncollapsed rows; expand to search hidden
-    // subtrees if that ever bites
+    /// Rows to display for the current collapse set and filter query.
     fn compute_rows(&self) -> Vec<(usize, usize)> {
-        let rows = usb::flatten(&self.render, &self.collapsed);
-        let Some(f) = &self.filter else { return rows };
-        let q = f.query.to_lowercase();
-        if q.is_empty() {
-            return rows;
-        }
-        let matched: Vec<bool> = rows
-            .iter()
-            .map(|&(_, i)| device_matches(&self.render[i], &q))
-            .collect();
-        visible_rows(&rows, &matched)
+        let query = self.filter.as_ref().map_or("", |f| f.query.as_str());
+        filtered_rows(&self.render, &self.collapsed, query)
     }
 
     /// Route a mouse event: right-click opens the copy menu, left-click selects
@@ -1767,6 +1772,33 @@ mod tests {
         assert_eq!(visible_rows(&rows, &m), vec![(0, 0), (1, 2), (2, 3), (2, 4)]);
         // no match: empty
         assert!(visible_rows(&rows, &[false; 5]).is_empty());
+    }
+
+    #[test]
+    fn device_matches_human_fields() {
+        let d = usb::demo_scan(0)
+            .into_iter()
+            .find(|d| d.name == "1-3.1")
+            .unwrap();
+        assert!(device_matches(&d, "keychron")); // product / manufacturer
+        assert!(device_matches(&d, "1-3.1")); // sysfs name
+        assert!(device_matches(&d, "3434:0121")); // vid:pid
+        assert!(!device_matches(&d, "logitech"));
+    }
+
+    #[test]
+    fn filter_surfaces_collapsed_matches() {
+        let devices = usb::demo_scan(0);
+        let names =
+            |rows: &[(usize, usize)]| rows.iter().map(|&(_, i)| devices[i].name.clone()).collect::<Vec<_>>();
+        let mut collapsed = HashSet::new();
+        collapsed.insert("1-3".to_string()); // hide the hub's children
+        // idle: collapse hides the child
+        assert!(!names(&filtered_rows(&devices, &collapsed, "")).contains(&"1-3.1".to_string()));
+        // query surfaces it anyway, re-anchored under its collapsed parent
+        let hit = names(&filtered_rows(&devices, &collapsed, "keychron"));
+        assert!(hit.contains(&"1-3.1".to_string()));
+        assert!(hit.contains(&"1-3".to_string()));
     }
 
     #[test]
