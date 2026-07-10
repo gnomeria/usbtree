@@ -39,5 +39,12 @@ for tape in tapes/*.tape; do
     vhs "$tape"
 done
 
+# normalize the rendered assets before committing
+if command -v exiftool >/dev/null 2>&1; then
+    exiftool -all= -overwrite_original docs/screenshots/*.png docs/screenshots/*.gif >/dev/null
+else
+    echo "exiftool not found — skipping asset cleanup" >&2
+fi
+
 echo "done — docs/screenshots/:"
 ls -l docs/screenshots/
