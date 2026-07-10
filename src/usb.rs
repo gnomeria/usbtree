@@ -148,16 +148,20 @@ impl Device {
         class_name(self.effective_class())
     }
 
+    // ponytail: no U+FE0F (VS16) on any glyph here. VS16 forces emoji
+    // presentation = 2 terminal cells, but unicode-width (ratatui's cursor
+    // model) counts it 1 → stray cell ghosts on partial redraw. Keep these
+    // text-presentation (width 1). Don't "prettify" them back with VS16.
     pub fn icon(&self) -> &'static str {
         if self.is_root_hub() {
-            return "🖥️";
+            return "🖥";
         }
         match self.effective_class() {
             0x01 => "🔊",
             0x02 | 0x0a => "📡",
-            0x03 => "⌨️",
+            0x03 => "⌨",
             0x06 => "📷",
-            0x07 => "🖨️",
+            0x07 => "🖨",
             0x08 => "💾",
             0x09 => "🔌",
             0x0b => "💳",
