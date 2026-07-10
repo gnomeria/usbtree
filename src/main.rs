@@ -84,7 +84,7 @@ fn pci_icon(class: u8) -> &'static str {
     match class {
         0x01 => "💾",
         0x02 => "🌐",
-        0x03 => "🖥️",
+        0x03 => "🖥",
         0x04 => "🎬",
         0x06 => "🌉",
         0x07 => "📞",
