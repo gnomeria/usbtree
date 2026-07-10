@@ -615,7 +615,8 @@
       <p class="tagline">
         A cross-platform TUI for inspecting USB devices — hubs, classes, speeds,
         hot-plug events and live bandwidth. <b>Pure Rust</b> via nusb:
-        <b>no root, no libusb</b>. Linux · macOS · Windows.
+        <b>no root, no libusb</b>. One static binary,
+        <b>~1.5 MB download</b> (~5–7 MB on disk). Linux · macOS · Windows.
       </p>
 
       <div class="os-toggle" role="tablist" aria-label="Install platform">
@@ -798,11 +799,9 @@
           <h3>Live bandwidth</h3>
           <p>
             Per-device sparklines in the tree and a bandwidth graph in the
-            detail panel. Unprivileged URBs/s on Linux; real bytes/s with root +
-            the usbmon module (<code>sudo modprobe usbmon</code>).
-            <b>Linux only</b> — macOS/Windows expose no unprivileged
-            per-device traffic counter (sudo won't help), so live stats aren't
-            implemented there yet.
+            detail panel. Unprivileged URBs/s; real bytes/s with root + the
+            usbmon module. <b>Linux only</b> — macOS/Windows expose no
+            unprivileged per-device counter (sudo won't help).
           </p>
         </div>
         <div class="card">
@@ -836,8 +835,10 @@
           <h3>Pure Rust, zero setup</h3>
           <p>
             Built on nusb and ratatui: no root, no libusb, no drivers. One
-            static binary for Linux, macOS, and Windows. <code>--dump</code> for
-            scripts, <code>--demo</code> to try it without hardware.
+            static binary per OS — a <b>~1.5 MB</b> download (~5–7 MB on disk),
+            no runtime deps.
+            <code>--dump</code> for scripts, <code>--demo</code> to try it
+            without hardware.
           </p>
         </div>
       </div>
@@ -848,10 +849,7 @@
       <p class="sub">
         The tree, names, hot-plug log and detail panel work everywhere. Live
         per-device traffic is Linux-only — macOS and Windows expose no
-        unprivileged per-device counter, so the header reads
-        <code style="font-family: var(--mono)"
-          >◌ activity n/a on this platform</code
-        >.
+        unprivileged per-device counter.
       </p>
       <div class="matrix-wrap">
         <table class="matrix">
