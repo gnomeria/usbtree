@@ -664,7 +664,7 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         max_power_ma: power,
         interfaces: demo_interfaces(name),
     };
-    let t = t % 30;
+    let t = t % 15;
     // attrs: 0x80 bus-powered, 0xa0 +remote-wakeup, 0xe0 self-powered +wakeup
     let mut devices = vec![
         dev("usb1", 0, 0, "", "xhci-hcd", "", 0x09, &[], None, 0),
@@ -675,12 +675,12 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         dev("1-3.2", 0x046d, 0xb034, "Logitech", "MX Master 3S", "12", 0x00, &[0x03], Some(100), 0xa0),
         dev("usb2", 0, 0, "", "xhci-hcd", "", 0x09, &[], None, 0),
     ];
-    if (6..24).contains(&t) {
+    if (3..12).contains(&t) {
         devices.push(dev(
             "2-1", 0x0781, 0x558c, "SanDisk", "Extreme SSD", "10000", 0x00, &[0x08], Some(896), 0x80,
         ));
     }
-    if !(14..20).contains(&t) {
+    if !(7..10).contains(&t) {
         devices.push(dev(
             "2-3", 0x046d, 0x082d, "Logitech", "HD Pro Webcam C920", "480", 0xef, &[0x0e, 0x01],
             Some(500), 0x80,

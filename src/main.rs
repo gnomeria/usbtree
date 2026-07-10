@@ -505,6 +505,11 @@ struct App {
     filter: Option<Filter>,
     /// open eject confirmation dialog: the sysfs name pending eject
     confirm: Option<String>,
+    /// names ejected in `--demo`: real eject is unavailable, so instead we drop
+    /// these from every synthetic scan to visibly play the unplug (ghost + log)
+    // ponytail: stays gone for the session; the loop won't replug it. Fine for a
+    // demo — clear on the device's next natural unplug if that ever matters.
+    demo_ejected: HashSet<String>,
     /// which bus view is shown (USB / PCI)
     tab: Tab,
     /// PCI devices (flat, address-sorted); only refreshed while the PCI tab is up
@@ -568,6 +573,7 @@ impl App {
             menu: None,
             filter: None,
             confirm: None,
+            demo_ejected: HashSet::new(),
             tab: Tab::Usb,
             pci: Vec::new(),
             pci_rows: Vec::new(),
@@ -1046,7 +1052,11 @@ impl App {
         let name = self.confirm.take();
         if let (KeyCode::Char('e' | 'y') | KeyCode::Enter, Some(name)) = (code, name) {
             if self.demo {
-                self.toast = Some(("eject disabled in --demo".into(), Instant::now(), false));
+                // no real hardware to eject — drop it from the synthetic scan so
+                // the tree plays the unplug (ghost + event-log entry) for real
+                self.demo_ejected.insert(name.clone());
+                self.toast = Some((format!("ejected {name}"), Instant::now(), true));
+                self.rescan();
                 return;
             }
             let label = self
@@ -1069,11 +1079,14 @@ impl App {
         if self.tab == Tab::Pci {
             self.pci_rescan();
         }
-        let new = if self.demo {
+        let mut new = if self.demo {
             usb::demo_scan(self.started.elapsed().as_secs())
         } else {
             usb::scan()
         };
+        if self.demo {
+            new.retain(|d| !self.demo_ejected.contains(&d.name));
+        }
         let (added, removed) = usb::diff(&self.devices, &new);
         let stamp = self.started.elapsed().as_secs();
         let stamp = format!("[{:02}:{:02}] ", stamp / 60, stamp % 60);

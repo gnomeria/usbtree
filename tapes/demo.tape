@@ -1,7 +1,8 @@
 # Walkthrough of `usbtree --demo` for the README/website.
 # Regenerate with scripts/shots.sh (needs vhs) or the Screenshots workflow.
-# Timeline of the demo loop: SSD plugs at 6 s / unplugs at 24 s,
-# webcam unplugs at 14 s / returns at 20 s.
+# Timeline of the demo loop: SSD plugs at 3 s / unplugs at 12 s,
+# webcam unplugs at 7 s / returns at 10 s. The eject-dialog shot and the
+# filter must land while the SSD is present (t < 12).
 
 Output docs/screenshots/demo.gif
 
@@ -18,40 +19,43 @@ Enter
 Sleep 1.5s
 Show
 
-# initial tree with live sparklines
-Sleep 3s
+# initial tree with live sparklines (SSD hot-plug lands ~t=3, flashing green)
+Sleep 1.5s
 
-# walk down to the hub, fold and unfold it
+# walk to the hub, fold to a +N badge, unfold again
+Type "j"
+Sleep 300ms
+Type "j"
+Sleep 300ms
 Type "j"
 Sleep 500ms
-Type "j"
-Sleep 500ms
-Type "j"
-Sleep 1s
 Type "h"
-Sleep 1.5s
-Type "l"
-Sleep 1.5s
-
-# SSD hot-plug lands around here (t=6s) — let it flash green
-Sleep 3s
-Screenshot docs/screenshots/demo.png
-
-# webcam unplug (t=14s): red crossed-out ghost + event log entry
-Sleep 8s
-
-# webcam returns (t=20s)
-Sleep 5s
-
-# live filter: `/` opens the search box, type to narrow the tree, Esc clears.
-# static devices only (Logitech gear is always present), so loop phase is moot.
-Type "/"
 Sleep 800ms
-Type "logi"
-Sleep 2.5s
-Backspace 4
+Type "l"
+Sleep 800ms
+
+# drop onto the SanDisk SSD, open the safe-eject dialog, confirm with `e`.
+# in --demo the SSD is dropped from the scan, so it plays a real unplug:
+# crossed-out ghost + event-log entry + "ejected" toast.
+Type "j"
+Sleep 250ms
+Type "j"
+Sleep 250ms
+Type "j"
+Sleep 250ms
+Type "j"
 Sleep 500ms
-Type "hub"
+Type "e"
+Sleep 700ms
+Screenshot docs/screenshots/demo.png
+Type "e"
+Sleep 2s
+
+# live filter: `/` opens the search box; "keychron" narrows to the nested
+# keyboard, revealing its collapsed parent hub. Esc clears.
+Type "/"
+Sleep 600ms
+Type "keychron"
 Sleep 2.5s
 Escape
 Sleep 1s

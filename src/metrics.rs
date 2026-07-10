@@ -165,16 +165,18 @@ impl Metrics {
     }
 }
 
-/// Plausible traffic per class: steady audio, bursty storage, trickling HID.
+/// Plausible traffic per class, real-world scale: a 2-in/2-out audio interface
+/// trickles ~0.5 MB/s, a 1080p webcam ~3 MB/s (H.264), a USB SSD bursts to a
+/// few hundred MB/s during a copy then idles, HID barely registers.
 fn demo_rate(d: &Device, t: u64) -> u64 {
     let phase: u64 = d.name.bytes().map(u64::from).sum();
     let wave = (((t + phase) as f64) * 0.9).sin() * 0.5 + 0.5; // 0..1
     let base = match d.effective_class() {
-        0x01 => 12_000_000.0,
-        0x0e => 24_000_000.0,
+        0x01 => 700_000.0,
+        0x0e => 3_200_000.0,
         0x08 => {
             if (t + phase) % 11 < 5 {
-                280_000_000.0
+                160_000_000.0
             } else {
                 400_000.0
             }
