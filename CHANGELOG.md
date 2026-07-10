@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.8](https://github.com/gnomeria/usbtree/compare/v0.0.7...v0.0.8) (2026-07-10)
+
+
+### Features
+
+* **pci:** add prog-if, subsystem, link, numa, iommu, power to detail pane ([#48](https://github.com/gnomeria/usbtree/issues/48)) ([cb4b235](https://github.com/gnomeria/usbtree/commit/cb4b23597183bad2f858be04b37468930e4849ec))
+* **usb:** safe eject storage devices with confirm dialog ([#51](https://github.com/gnomeria/usbtree/issues/51)) ([c0bb57b](https://github.com/gnomeria/usbtree/commit/c0bb57b404790c1b654998f253093df29c516606))
+
+
+### Bug Fixes
+
+* **tui:** filter finds devices inside collapsed hubs ([#50](https://github.com/gnomeria/usbtree/issues/50)) ([3485941](https://github.com/gnomeria/usbtree/commit/3485941964336fe933ce47b64dd201ca0ddea100))
+
 ## [0.0.7](https://github.com/gnomeria/usbtree/compare/v0.0.6...v0.0.7) (2026-07-09)
 
 
