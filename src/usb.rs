@@ -664,7 +664,7 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         max_power_ma: power,
         interfaces: demo_interfaces(name),
     };
-    let t = t % 30;
+    let t = t % 15;
     // attrs: 0x80 bus-powered, 0xa0 +remote-wakeup, 0xe0 self-powered +wakeup
     let mut devices = vec![
         dev("usb1", 0, 0, "", "xhci-hcd", "", 0x09, &[], None, 0),
@@ -675,12 +675,12 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         dev("1-3.2", 0x046d, 0xb034, "Logitech", "MX Master 3S", "12", 0x00, &[0x03], Some(100), 0xa0),
         dev("usb2", 0, 0, "", "xhci-hcd", "", 0x09, &[], None, 0),
     ];
-    if (6..24).contains(&t) {
+    if (3..12).contains(&t) {
         devices.push(dev(
             "2-1", 0x0781, 0x558c, "SanDisk", "Extreme SSD", "10000", 0x00, &[0x08], Some(896), 0x80,
         ));
     }
-    if !(14..20).contains(&t) {
+    if !(7..10).contains(&t) {
         devices.push(dev(
             "2-3", 0x046d, 0x082d, "Logitech", "HD Pro Webcam C920", "480", 0xef, &[0x0e, 0x01],
             Some(500), 0x80,
@@ -832,14 +832,43 @@ pub fn eject(name: &str) -> Result<String, String> {
     if disks.is_empty() {
         return Err("no block device found for this port".into());
     }
+    // Eject every backing disk independently: a hub can carry several, and one
+    // busy drive must not abort the rest. Collect outcomes, report at the end.
+    let mut ok = Vec::new();
+    let mut errs = Vec::new();
     for disk in &disks {
+        let mut busy = false;
         for part in partitions(disk) {
-            // ignore failures: the partition may simply not be mounted
-            let _ = udisksctl(&["unmount", "-b", &format!("/dev/{part}")]);
+            // an unmounted partition errors with "not mounted" — harmless; only a
+            // real in-use error blocks power-off, so surface that plainly
+            if let Err(e) = udisksctl(&["unmount", "-b", &format!("/dev/{part}")])
+                && is_busy(&e)
+            {
+                busy = true;
+                errs.push(format!("{part} in use"));
+            }
         }
-        udisksctl(&["power-off", "-b", &format!("/dev/{disk}")])?;
+        if busy {
+            continue; // leave a drive with open files powered — don't risk data loss
+        }
+        match udisksctl(&["power-off", "-b", &format!("/dev/{disk}")]) {
+            Ok(()) => ok.push(disk.clone()),
+            Err(e) => errs.push(format!("{disk}: {e}")),
+        }
     }
-    Ok(format!("ejected {}", disks.join(", ")))
+    match (ok.is_empty(), errs.is_empty()) {
+        (_, true) => Ok(format!("ejected {}", ok.join(", "))),
+        (true, false) => Err(errs.join("; ")),
+        (false, false) => Err(format!("ejected {}; {}", ok.join(", "), errs.join("; "))),
+    }
+}
+
+/// True if a udisksctl error means the device is in use (an open file / mounted
+/// path), vs. a benign "not mounted". A busy drive is left powered, not yanked.
+#[cfg(target_os = "linux")]
+fn is_busy(err: &str) -> bool {
+    let e = err.to_lowercase();
+    e.contains("busy") || e.contains("in use")
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -1031,6 +1060,16 @@ C 03  Human Interface Device\n\
         let child = "../devices/pci0000:00/usb2/2-1/2-1.4/2-1.4:1.0/host6/block/sdb";
         assert!(under_usb_device(child, "2-1"));
         assert!(under_usb_device(child, "2-1.4"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn busy_vs_not_mounted() {
+        assert!(is_busy("Error unmounting /dev/sda1: target is busy"));
+        assert!(is_busy("Device or resource busy"));
+        assert!(is_busy("Object /dev/sda1 is in use"));
+        // benign: an idle partition just isn't mounted — must not block power-off
+        assert!(!is_busy("Error unmounting: not mounted"));
     }
 
     #[test]
