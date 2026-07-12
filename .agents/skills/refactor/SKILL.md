@@ -5,42 +5,41 @@ description: Behavior-preserving restructuring done safely — test net first, s
 
 # Refactor
 
-Refactoring changes structure, never behavior. If behavior changes, it's a feature or a bug fix — do that separately.
+Structure changes, behavior never. Behavior changes = feature or bug fix — separate change.
 
-## Step 0 — Decide it's worth it
+## Step 0 — Worth it?
 
-- Refactor with a purpose: enabling a concrete upcoming change, killing duplication that actually bit someone, or making untestable code testable. "Could be cleaner" alone is not a purpose — say so and stop.
-- Scope it: name the target shape in one or two sentences before touching code. No target = wandering diff.
+- Purpose required: enables concrete upcoming change, kills duplication that bit someone, or makes untestable testable. "Could be cleaner" alone = say so, stop.
+- Name target shape in one or two sentences before touching code. No target = wandering diff.
 
 ## Step 1 — Safety net
 
-- Run the existing tests covering the code; note the passing baseline. Typecheck/lint too (`go vet`, `tsc --noEmit`).
-- **Uncovered code**: write characterization tests first — pin down what it *does now* (including odd behavior), not what it should do. A refactor without a net is just editing and hoping.
-- Working tree must be clean before starting; the ability to `git checkout .` at any point is the escape hatch.
+- Baseline: `cargo test` green, `cargo clippy -- -D warnings` clean. Note it.
+- Uncovered code: characterization tests first — pin what it *does now* (odd behavior included). Extra check: `--demo --dump` output before vs after must be byte-identical.
+- Working tree clean before starting; `git checkout .` is the escape hatch.
 
 ## Step 2 — Small steps, verify each
 
-- One named refactoring at a time: extract function, inline, rename, move, split module, introduce parameter. Finish it, verify, then the next.
-- Verify after every step: tests + typecheck. Green → keep going or commit-point; red → the last step broke it, undo just that step. Never push forward on red planning to "fix at the end".
-- Use mechanical tools for mechanical work: `gopls rename`, TS language-server rename, IDE move-symbol. A tool rename can't miss a call site; a regex can.
-- Keep steps commit-sized. On long refactors, stop at green checkpoints so the user can commit — a 40-file big-bang diff that "should work" is failure, not progress.
+- One named refactoring at a time: extract fn, inline, rename, move, split module. Finish, verify, next.
+- Verify each step: `cargo test` + clippy. Red → undo last step only. Never push forward on red planning to "fix at the end".
+- Rename via rust-analyzer / `cargo` tooling where available — tool can't miss call site, regex can.
+- Commit-sized steps. Long refactor → stop at green checkpoints. 40-file big-bang diff "should work" = failure.
 
 ## Step 3 — Hard rules
 
-- **No behavior changes.** Spot a bug mid-refactor? Note it, finish or checkpoint the refactor, fix the bug as a separate change (see `debug` skill). Never fold it in silently.
-- **No API breaks without saying so.** Changing an exported/public signature? Grep all call sites first; update every one in the same change, and flag it to the user if the surface is shared beyond this repo.
-- **No test rewrites to fit the refactor.** Tests failing after a "behavior-preserving" change means the change wasn't behavior-preserving. The exception is tests coupled to structure (mocks of a now-gone internal); update those minimally and say why.
-- **No scope creep.** The target shape from Step 0 is the boundary. New improvement ideas get listed at the end, not done.
+- **No behavior changes.** Bug found mid-refactor → note it, checkpoint, fix separately (see `debug` skill).
+- **No fmt churn.** Repo bans blind `cargo fmt` — hand-aligned blocks (theme, match tables). Diff only what the refactor touches.
+- **Respect `// ponytail:` comments** — known deliberate tradeoffs. Don't "clean up" without reason.
+- **No test rewrites to fit refactor.** Tests fail after "behavior-preserving" change → change wasn't behavior-preserving. Exception: tests coupled to now-gone internals; update minimally, say why.
+- **No scope creep.** Step 0 shape is boundary. New ideas → list at end, don't do.
 
 ## Step 4 — Finish
 
-- Full test suite + typecheck + lint green. Dead code left behind by the restructure gets deleted, not commented out.
-- Report: target shape achieved, steps taken, anything discovered but deliberately not done (bugs found, further refactorings), and any API changes.
+- Full `cargo test` + clippy green. `--demo --dump` unchanged. Dead code deleted, not commented out.
+- Report: shape achieved, steps taken, things found-not-done.
 
 ## Direction
 
-For which structures to prefer per stack, follow the stack guides (`go-service`, `node-backend`, `react-next`, `sveltekit`, `solidjs`, `astro`). Common calls:
-
-- Prefer extracting *functions* over introducing classes/interfaces; add an interface only at a genuine seam (Go: define it where it's consumed).
-- Duplication rule of three: two similar blocks may stand; the third occurrence earns the abstraction — with the right shape now visible.
-- Don't abstract for testability when injecting a plain function/value would do.
+- Extract *functions* over introducing traits/structs; trait only at genuine seam (multiple impls exist or test needs one).
+- Rule of three: two similar blocks may stand; third occurrence earns abstraction — right shape now visible.
+- Don't abstract for testability when passing plain value/fn does it.

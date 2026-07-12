@@ -2,6 +2,8 @@
 
 caveman brief. read once, know repo.
 
+before explore: `.knowledge/README.md` — read graph, follow its read/write rule. `scripts/kg.sh anchored <file>`.
+
 ## what
 
 usbtree = rust TUI. show USB device tree live. ratatui draw, nusb scan. no root. no libusb. linux + mac + windows.
@@ -9,12 +11,13 @@ usbtree = rust TUI. show USB device tree live. ratatui draw, nusb scan. no root.
 ## map
 
 - `src/main.rs` — App, event loop, all drawing, theme (charm pastels). 1s rescan tick.
-- `src/usb.rs` — scan via nusb, sysfs-style names (`1-1.4`), tree flatten/fold, usb.ids parse, `~/.config/usbtree/overrides.ids`, `demo_scan`.
+- `src/usb.rs` — scan via nusb, sysfs-style names (`1-1.4`), tree flatten/fold, usb.ids parse, `~/.config/usbtree/overrides.ids` `demo_scan`.
 - `src/metrics.rs` — activity rates. urbnum sysfs (unprivileged, linux), usbmon (root, real bytes/s), demo (synthetic).
+- `src/pci.rs` — PCI detail for detail pane (prog-if, subsystem, link, numa, iommu, power). linux sysfs.
 - `scripts/install.sh` — curl|sh installer. asset names MUST match release.yml pattern `usbtree_<ver>_<os>-<arch>.tar.gz` + checksums.txt.
 - `scripts/shots.sh` — render tapes. needs vhs + ttyd + ffmpeg.
 - `tapes/demo.tape` — VHS walkthrough. timings assume demo loop (below). change demo_scan → check tape still lands events.
-- `docs/index.html` — website. self-contained, no external requests. GIF `screenshots/demo.gif`, HTML mockup = fallback when GIF missing.
+- `docs/index.html` — website. self-contained, no external requests. GIF `screenshots/demo.gif`HTML mockup = fallback when GIF missing.
 - `Taskfile.yml` — `task -l`. optional sugar, CI no use it.
 
 ## flags
@@ -23,10 +26,10 @@ usbtree = rust TUI. show USB device tree live. ratatui draw, nusb scan. no root.
 
 ## rules
 
-- clippy clean or CI angry: `cargo clippy -- -D warnings`. CI runner clippy maybe newer than local — new lints appear, fix them, no allow-spam.
+- clippy clean or CI angry: `cargo clippy -- -D warnings`. CI runner clippy newer than local — new lints appear, fix them, no allow-spam.
 - NO blind `cargo fmt`. code hand-aligned (theme block, match tables). small diffs, match style around you.
 - conventional commits. release-please read them, cut release PR. merge release PR → tag → release.yml build binaries.
-- `// ponytail:` comment = known tradeoff, on purpose. no "fix" without reason.
+- `// ponytail:` comment = known tradeoff, on purpose. no "fix" w/o reason.
 - mac/windows binaries unsigned. keep warnings in README + installer + site when touching install docs.
 - hooks: `task hooks` once per clone (gitleaks + privacy scan pre-commit).
 
@@ -41,3 +44,4 @@ usbtree = rust TUI. show USB device tree live. ratatui draw, nusb scan. no root.
 ## test fast
 
 `cargo test` (pure logic: tree, parse, diff). `./target/release/usbtree --demo --dump` = smoke test no hardware. TUI check: run `--demo` in pty.
+
