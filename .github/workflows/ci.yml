@@ -2,9 +2,9 @@ name: ci
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '**.md']
+    paths-ignore: ['docs/**', '**.md', '.agents/**', '.claude/**', '.knowledge/**', '.githooks/**']
   pull_request:
-    paths-ignore: ['docs/**', '**.md']
+    paths-ignore: ['docs/**', '**.md', '.agents/**', '.claude/**', '.knowledge/**', '.githooks/**']
 permissions:
   contents: read
 concurrency:
