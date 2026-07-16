@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.9](https://github.com/gnomeria/usbtree/compare/v0.0.8...v0.0.9) (2026-07-16)
+
+
+### Features
+
+* add --nerd-font and --ascii icon fallbacks ([#64](https://github.com/gnomeria/usbtree/issues/64)) ([b481119](https://github.com/gnomeria/usbtree/commit/b48111916730e8300094f110dbd521ba6357fba9))
+* add interactive theme picker and expand color themes ([#65](https://github.com/gnomeria/usbtree/issues/65)) ([6cc6cd1](https://github.com/gnomeria/usbtree/commit/6cc6cd1af8072672b80af6fcc79ffb1cc95586b5)), closes [#58](https://github.com/gnomeria/usbtree/issues/58)
+
+
+### Bug Fixes
+
+* **tui:** strip VS16 from icons to stop redraw ghosting ([#55](https://github.com/gnomeria/usbtree/issues/55)) ([9a316d8](https://github.com/gnomeria/usbtree/commit/9a316d8010c37f3cfa78145bfeab997fd892e712))
+
+
+### Refactors
+
+* modularize main.rs and extract test files ([#63](https://github.com/gnomeria/usbtree/issues/63)) ([c0af1e6](https://github.com/gnomeria/usbtree/commit/c0af1e666b2f0b41471266ee28e121f31625bd14))
+
+
+### Documentation
+
+* **skills:** rewrite skills for rust, add ci + knowledge-graph, seed .knowledge ([#56](https://github.com/gnomeria/usbtree/issues/56)) ([f259588](https://github.com/gnomeria/usbtree/commit/f259588e40d80eef2dc3f27831b77439ae510f52))
+* trim README and site, note binary sizes ([#53](https://github.com/gnomeria/usbtree/issues/53)) ([f3fccf7](https://github.com/gnomeria/usbtree/commit/f3fccf799cde8e434972037ca848e589a8645cc7))
+
 ## [0.0.8](https://github.com/gnomeria/usbtree/compare/v0.0.7...v0.0.8) (2026-07-10)
 
 
