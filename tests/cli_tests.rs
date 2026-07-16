@@ -14,20 +14,17 @@ fn test_cli_dump_runs_successfully() {
         output.status.success(),
         "Binary should exit successfully when running --dump"
     );
-    
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.is_empty(), "Dump output should not be empty");
+    // Note: We don't assert that stdout is not empty here, because CI runners
+    // (like GitHub Actions) may legitimately have zero USB devices.
 }
 
 #[test]
-fn test_cli_help() {
+fn test_cli_demo_dump_has_output() {
     let bin_path = env!("CARGO_BIN_EXE_usbtree");
 
-    // The TUI doesn't have clap yet, but it handles invalid arguments or --help gracefully if we add it.
-    // For now we just test --demo.
     let output = Command::new(bin_path)
         .arg("--demo")
-        .arg("--dump") // Combine with dump so it exits immediately instead of opening TUI
+        .arg("--dump")
         .output()
         .expect("Failed to execute usbtree binary");
 
@@ -35,4 +32,7 @@ fn test_cli_help() {
         output.status.success(),
         "Binary should exit successfully with --demo --dump"
     );
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.is_empty(), "Demo dump output should not be empty");
 }
