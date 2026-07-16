@@ -524,8 +524,9 @@ fn overrides_path() -> Option<PathBuf> {
 /// no API token, no User-Agent quirks.
 pub fn latest_release() -> Option<String> {
     let url = format!("https://github.com/{}/releases/latest", env!("CARGO_PKG_REPOSITORY").rsplit("github.com/").next()?);
+    let null_dev = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let out = std::process::Command::new("curl")
-        .args(["-fsSLI", "--max-time", "5", "-o", "/dev/null", "-w", "%{url_effective}"])
+        .args(["-fsSLI", "--max-time", "5", "-o", null_dev, "-w", "%{url_effective}"])
         .arg(&url)
         .output()
         .ok()?;
@@ -636,22 +637,36 @@ pub fn update_list() -> Result<(usize, usize, PathBuf), String> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
+    
+    let tmp_path = path.with_extension("tmp");
+    
     // ponytail: shell out to curl (bundled on Win10+, macOS, most Linux)
     // instead of pulling in an HTTP client crate; swap for ureq if it hurts
     let status = std::process::Command::new("curl")
         .args(["-fsSL", "--retry", "2", "-o"])
-        .arg(&path)
+        .arg(&tmp_path)
         .arg(USB_IDS_URL)
         .status()
         .map_err(|e| format!("couldn't run curl: {e}"))?;
     if !status.success() {
+        let _ = fs::remove_file(&tmp_path);
         return Err(format!("download failed ({status}) from {USB_IDS_URL}"));
     }
-    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    let bytes = fs::read(&tmp_path).map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        e.to_string()
+    })?;
     let db = parse_usb_ids(&String::from_utf8_lossy(&bytes));
     if db.vendors.is_empty() {
+        let _ = fs::remove_file(&tmp_path);
         return Err("downloaded file doesn't look like usb.ids".into());
     }
+    
+    fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        format!("failed to save downloaded file: {e}")
+    })?;
+    
     Ok((db.vendors.len(), db.products.len(), path))
 }
 
