@@ -84,6 +84,7 @@ usbtree                 # TUI
 usbtree --dump          # print the tree once and exit
 usbtree --updatelist    # download the latest usb.ids into the config dir
 usbtree --demo          # fake tree with scripted hot-plug + traffic (no hardware)
+usbtree --light         # use light theme (for light background terminals)
 ```
 
 | Key                   | Action              |
@@ -98,6 +99,7 @@ usbtree --demo          # fake tree with scripted hot-plug + traffic (no hardwar
 | `e`                   | safe-eject storage  |
 | `p`                   | toggle USB / PCI    |
 | `r`                   | force rescan        |
+| `t`                   | toggle theme        |
 | `q` / `Esc`           | quit                |
 
 ## Configuration

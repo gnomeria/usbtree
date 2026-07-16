@@ -22,6 +22,11 @@ use crate::app::{App, Tab, RESCAN_INTERVAL};
                     {
                         app.confirm_key(key.code)
                     }
+                    Event::Key(key)
+                        if key.kind == KeyEventKind::Press && app.theme_picker.is_some() =>
+                    {
+                        app.theme_key(key.code)
+                    }
                     Event::Key(key) if key.kind == KeyEventKind::Press => {
                         // any keypress dismisses an open menu; Esc then does nothing else
                         let menu_was_open = app.menu.take().is_some();
@@ -50,6 +55,9 @@ use crate::app::{App, Tab, RESCAN_INTERVAL};
                             KeyCode::Char('r') => app.rescan(),
                             KeyCode::Char('y') if app.tab == Tab::Usb => app.yank(false),
                             KeyCode::Char('Y') if app.tab == Tab::Usb => app.yank(true),
+                            KeyCode::Char('t') => {
+                                app.open_theme_picker();
+                            }
                             KeyCode::Char('e') if app.tab == Tab::Usb => app.eject_key(),
                             _ => {}
                         }
