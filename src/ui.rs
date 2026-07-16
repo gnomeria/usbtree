@@ -64,16 +64,43 @@ pub fn pci_class_color(class: u8) -> Color {
 }
 
 pub fn pci_icon(class: u8) -> &'static str {
-    match class {
-        0x01 => "💾",
-        0x02 => "🌐",
-        0x03 => "🖥",
-        0x04 => "🎬",
-        0x06 => "🌉",
-        0x07 => "📞",
-        0x0c => "🔌",
-        0x0d => "📶",
-        _ => "🔹",
+    let theme = crate::ICON_THEME.load(std::sync::atomic::Ordering::Relaxed);
+    if theme == 1 {
+        match class {
+            0x01 => "󰋊",
+            0x02 => "󰲍",
+            0x03 => "󰒋",
+            0x04 => "󰎁",
+            0x06 => "󰍩",
+            0x07 => "󰗏",
+            0x0c => "󰚥",
+            0x0d => "󰤨",
+            _ => "󰟥",
+        }
+    } else if theme == 2 {
+        match class {
+            0x01 => "[S]",
+            0x02 => "[N]",
+            0x03 => "[D]",
+            0x04 => "[M]",
+            0x06 => "[B]",
+            0x07 => "[C]",
+            0x0c => "[U]",
+            0x0d => "[W]",
+            _ => "[?]",
+        }
+    } else {
+        match class {
+            0x01 => "💾",
+            0x02 => "🌐",
+            0x03 => "🖥",
+            0x04 => "🎬",
+            0x06 => "🌉",
+            0x07 => "📞",
+            0x0c => "🔌",
+            0x0d => "📶",
+            _ => "🔹",
+        }
     }
 }
 

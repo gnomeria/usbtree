@@ -9,7 +9,14 @@ mod usb;
 use app::App;
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 
+pub static ICON_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 fn main() -> std::io::Result<()> {
+    if std::env::args().any(|a| a == "--nerd-font" || a == "--nerd-fonts") {
+        ICON_THEME.store(1, std::sync::atomic::Ordering::Relaxed);
+    } else if std::env::args().any(|a| a == "--ascii") {
+        ICON_THEME.store(2, std::sync::atomic::Ordering::Relaxed);
+    }
     let demo = std::env::args().any(|a| a == "--demo");
     if std::env::args().any(|a| a == "--pci") {
         pci::dump();
