@@ -11,6 +11,8 @@ Set FontSize 16
 Set Width 1500
 Set Height 800
 Set Padding 16
+Set Margin 20
+Set WindowBar Colorful
 Set Theme "Catppuccin Mocha"
 
 Hide
@@ -59,6 +61,20 @@ Type "keychron"
 Sleep 2.5s
 Escape
 Sleep 1s
+
+# theme picker: `t` opens the modal, `j` scrolls down to live-preview themes
+Type "t"
+Sleep 1s
+Type "j"
+Sleep 700ms
+Type "j"
+Sleep 700ms
+Type "j"
+Sleep 700ms
+Type "j"
+Sleep 1.5s
+Enter
+Sleep 500ms
 
 Hide
 Type "q"

@@ -39,6 +39,12 @@ for tape in tapes/*.tape; do
     vhs "$tape"
 done
 
+# stitch the light theme demo onto the end of the main demo
+echo "» stitching demo.gif and demo-light.gif..."
+ffmpeg -y -i docs/screenshots/demo.gif -i docs/screenshots/demo-light.gif -filter_complex "[0:v][1:v]concat=n=2:v=1:a=0,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" docs/screenshots/demo-stitched.gif >/dev/null 2>&1
+mv docs/screenshots/demo-stitched.gif docs/screenshots/demo.gif
+rm docs/screenshots/demo-light.gif
+
 # normalize the rendered assets before committing
 if command -v exiftool >/dev/null 2>&1; then
     exiftool -all= -overwrite_original docs/screenshots/*.png docs/screenshots/*.gif >/dev/null

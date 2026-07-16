@@ -32,16 +32,16 @@ pub struct LogEvent {
 
 fn event_entry(stamp: &str, added: bool, d: &Device) -> LogEvent {
     let (glyph, color) = if added {
-        ("▲ ", theme::MINT)
+        ("▲ ", theme::mint())
     } else {
-        ("▼ ", theme::ROSE)
+        ("▼ ", theme::rose())
     };
     let line = Line::from(vec![
-        stamp.to_string().fg(theme::DIM),
+        stamp.to_string().fg(theme::dim()),
         Span::styled(glyph, Style::new().fg(color).bold()),
-        format!("{:<8}", d.name).fg(theme::DIM),
-        format!(" {} {}", d.icon(), d.label()).fg(theme::TEXT),
-        format!("  {:04x}:{:04x}", d.vid, d.pid).fg(theme::FAINT),
+        format!("{:<8}", d.name).fg(theme::dim()),
+        format!(" {} {}", d.icon(), d.label()).fg(theme::text()),
+        format!("  {:04x}:{:04x}", d.vid, d.pid).fg(theme::faint()),
     ]);
     LogEvent {
         line,
@@ -209,6 +209,8 @@ pub struct App {
     pub filter: Option<Filter>,
     /// open eject confirmation dialog: the sysfs name pending eject
     pub confirm: Option<String>,
+    /// open theme picker dialog: currently highlighted theme index
+    pub theme_picker: Option<(usize, usize)>,
     /// names ejected in `--demo`: real eject is unavailable, so instead we drop
     /// these from every synthetic scan to visibly play the unplug (ghost + log)
     // ponytail: stays gone for the session; the loop won't replug it. Fine for a
@@ -277,6 +279,7 @@ impl App {
             menu: None,
             filter: None,
             confirm: None,
+            theme_picker: None,
             demo_ejected: HashSet::new(),
             tab: Tab::Usb,
             pci: Vec::new(),
@@ -763,6 +766,44 @@ impl App {
             .position(|&(_, j)| self.render[j].name == name)
         {
             self.list.select(Some(pos));
+        }
+    }
+
+    pub fn open_theme_picker(&mut self) {
+        let current = crate::COLOR_THEME.load(std::sync::atomic::Ordering::Relaxed) as usize;
+        self.theme_picker = Some((current, current));
+    }
+
+    pub fn theme_key(&mut self, code: ratatui::crossterm::event::KeyCode) {
+        if let Some((current, original)) = self.theme_picker {
+            let mut next_current = current;
+            let mut close = false;
+            
+            match code {
+                ratatui::crossterm::event::KeyCode::Up | ratatui::crossterm::event::KeyCode::Char('k') => {
+                    next_current = current.saturating_sub(1);
+                }
+                ratatui::crossterm::event::KeyCode::Down | ratatui::crossterm::event::KeyCode::Char('j') => {
+                    if current + 1 < crate::ui::theme::THEME_NAMES.len() {
+                        next_current += 1;
+                    }
+                }
+                ratatui::crossterm::event::KeyCode::Enter | ratatui::crossterm::event::KeyCode::Char(' ') => {
+                    close = true;
+                }
+                ratatui::crossterm::event::KeyCode::Esc | ratatui::crossterm::event::KeyCode::Char('q') => {
+                    next_current = original;
+                    close = true;
+                }
+                _ => {}
+            }
+            
+            crate::COLOR_THEME.store(next_current as u8, std::sync::atomic::Ordering::Relaxed);
+            if close {
+                self.theme_picker = None;
+            } else {
+                self.theme_picker = Some((next_current, original));
+            }
         }
     }
 }
