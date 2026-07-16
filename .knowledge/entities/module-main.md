@@ -3,14 +3,14 @@ id: module-main
 type: module
 anchors: [src/main.rs]
 ---
-# main — App, event loop, all drawing, theme
+# main — Entry point
 
-Single owner of the ratatui render + crossterm event loop. 1s rescan tick drives
-hot-plug diff. Theme = charm pastels, hand-aligned block — do NOT `cargo fmt` it.
-All drawing lives here (no view module); detail pane switches USB vs PCI. Biggest
-file — most churn lands here.
+Simple entry point. Sets up terminal, handles CLI arguments (via `cli.rs`), and delegates to `App` in `app.rs`.
+
+Note: This file was previously the monolith owner of all logic. `App` state is now in `app.rs`, event loop in `events.rs`, and drawing in `ui.rs`.
 
 ## Relations
-- depends_on: module-usb
-- depends_on: module-metrics
-- depends_on: module-pci
+- depends_on: module-app
+- depends_on: module-events
+- depends_on: module-ui
+- depends_on: module-cli
