@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0](https://github.com/gnomeria/usbtree/compare/v0.0.10...v0.1.0) (2026-07-16)
+
+
+### Bug Fixes
+
+* atomic usb.ids cache update and Windows release check ([#68](https://github.com/gnomeria/usbtree/issues/68)) ([aeac78a](https://github.com/gnomeria/usbtree/commit/aeac78ac9b0693efee6c1a0acd392e3dbb159b38))
+
 ## [0.0.10](https://github.com/gnomeria/usbtree/compare/v0.0.9...v0.0.10) (2026-07-16)
 
 
