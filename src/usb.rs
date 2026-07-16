@@ -153,23 +153,63 @@ impl Device {
     // model) counts it 1 → stray cell ghosts on partial redraw. Keep these
     // text-presentation (width 1). Don't "prettify" them back with VS16.
     pub fn icon(&self) -> &'static str {
-        if self.is_root_hub() {
-            return "🖥";
-        }
-        match self.effective_class() {
-            0x01 => "🔊",
-            0x02 | 0x0a => "📡",
-            0x03 => "⌨",
-            0x06 => "📷",
-            0x07 => "🖨",
-            0x08 => "💾",
-            0x09 => "🔌",
-            0x0b => "💳",
-            0x0d => "🔒",
-            0x0e => "🎥",
-            0x10 => "🎬",
-            0xe0 => "📶",
-            _ => "🔹",
+        let theme = crate::ICON_THEME.load(std::sync::atomic::Ordering::Relaxed);
+        if theme == 1 {
+            if self.is_root_hub() {
+                return "󰒋";
+            }
+            match self.effective_class() {
+                0x01 => "󰕾",
+                0x02 | 0x0a => "󰲍",
+                0x03 => "󰌌",
+                0x06 => "󰄀",
+                0x07 => "󰐪",
+                0x08 => "󰋊",
+                0x09 => "󰚥",
+                0x0b => "󰉿",
+                0x0d => "󰌾",
+                0x0e => "󰕧",
+                0x10 => "󰎁",
+                0xe0 => "󰤨",
+                _ => "󰟥",
+            }
+        } else if theme == 2 {
+            if self.is_root_hub() {
+                return "[H]";
+            }
+            match self.effective_class() {
+                0x01 => "[A]",
+                0x02 | 0x0a => "[C]",
+                0x03 => "[I]",
+                0x06 => "[P]",
+                0x07 => "[R]",
+                0x08 => "[S]",
+                0x09 => "[U]",
+                0x0b => "[C]",
+                0x0d => "[L]",
+                0x0e | 0x10 => "[V]",
+                0xe0 => "[W]",
+                _ => "[?]",
+            }
+        } else {
+            if self.is_root_hub() {
+                return "🖥";
+            }
+            match self.effective_class() {
+                0x01 => "🔊",
+                0x02 | 0x0a => "📡",
+                0x03 => "⌨",
+                0x06 => "📷",
+                0x07 => "🖨",
+                0x08 => "💾",
+                0x09 => "🔌",
+                0x0b => "💳",
+                0x0d => "🔒",
+                0x0e => "🎥",
+                0x10 => "🎬",
+                0xe0 => "📶",
+                _ => "🔹",
+            }
         }
     }
 

@@ -18,6 +18,8 @@ use ratatui::widgets::{
     Block, BorderType, Clear, List, ListItem, ListState, Padding, Paragraph, Sparkline,
 };
 
+pub static ICON_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 use metrics::Metrics;
 use pci::PciDevice;
 use usb::Device;
@@ -81,16 +83,43 @@ fn pci_class_color(class: u8) -> Color {
 }
 
 fn pci_icon(class: u8) -> &'static str {
-    match class {
-        0x01 => "💾",
-        0x02 => "🌐",
-        0x03 => "🖥",
-        0x04 => "🎬",
-        0x06 => "🌉",
-        0x07 => "📞",
-        0x0c => "🔌",
-        0x0d => "📶",
-        _ => "🔹",
+    let theme = ICON_THEME.load(std::sync::atomic::Ordering::Relaxed);
+    if theme == 1 {
+        match class {
+            0x01 => "󰋊",
+            0x02 => "󰲍",
+            0x03 => "󰒋",
+            0x04 => "󰎁",
+            0x06 => "󰍩",
+            0x07 => "󰗏",
+            0x0c => "󰚥",
+            0x0d => "󰤨",
+            _ => "󰟥",
+        }
+    } else if theme == 2 {
+        match class {
+            0x01 => "[S]",
+            0x02 => "[N]",
+            0x03 => "[D]",
+            0x04 => "[M]",
+            0x06 => "[B]",
+            0x07 => "[C]",
+            0x0c => "[U]",
+            0x0d => "[W]",
+            _ => "[?]",
+        }
+    } else {
+        match class {
+            0x01 => "💾",
+            0x02 => "🌐",
+            0x03 => "🖥",
+            0x04 => "🎬",
+            0x06 => "🌉",
+            0x07 => "📞",
+            0x0c => "🔌",
+            0x0d => "📶",
+            _ => "🔹",
+        }
     }
 }
 
@@ -266,6 +295,11 @@ fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
 }
 
 fn main() -> std::io::Result<()> {
+    if std::env::args().any(|a| a == "--nerd-font" || a == "--nerd-fonts") {
+        ICON_THEME.store(1, std::sync::atomic::Ordering::Relaxed);
+    } else if std::env::args().any(|a| a == "--ascii") {
+        ICON_THEME.store(2, std::sync::atomic::Ordering::Relaxed);
+    }
     let demo = std::env::args().any(|a| a == "--demo");
     // --pci: headless one-shot dump; the interactive PCI view is the Pci tab
     if std::env::args().any(|a| a == "--pci") {
