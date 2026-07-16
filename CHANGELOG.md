@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.10](https://github.com/gnomeria/usbtree/compare/v0.0.9...v0.0.10) (2026-07-16)
+
+
+### Features
+
+* **ui:** set tokyo night as the default theme ([#66](https://github.com/gnomeria/usbtree/issues/66)) ([b656ecc](https://github.com/gnomeria/usbtree/commit/b656ecc97939ec6cf56cd845d513d008c6096535))
+
 ## [0.0.9](https://github.com/gnomeria/usbtree/compare/v0.0.8...v0.0.9) (2026-07-16)
 
 
