@@ -10,7 +10,7 @@ use app::App;
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 
 pub static ICON_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-pub static COLOR_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+pub static COLOR_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(6);
 
 fn main() -> std::io::Result<()> {
     if std::env::args().any(|a| a == "--nerd-font" || a == "--nerd-fonts") {
