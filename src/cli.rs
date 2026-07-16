@@ -1,6 +1,7 @@
 use crate::usb;
 use std::collections::HashSet;
 
+/// Non-TUI mode: print the tree once and exit.
 pub fn dump(demo: bool) {
     let devices = if demo { usb::demo_scan(0) } else { usb::scan() };
     let rows = usb::flatten(&devices, &HashSet::new());

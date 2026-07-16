@@ -22,6 +22,8 @@ use ratatui::style::Style;
 pub const RESCAN_INTERVAL: Duration = Duration::from_secs(1);
 pub const HIGHLIGHT_TTL: Duration = Duration::from_secs(30);
 
+/// One hot-plug entry: the styled line for display, plus the raw id / name for
+/// yanking (`y` = id, `Y` = name).
 pub struct LogEvent {
     pub line: Line<'static>,
     pub id: String,

@@ -249,11 +249,6 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
 }
 
 
-/// Non-TUI mode: print the tree once and exit.
-
-/// One hot-plug entry: the styled line for display, plus the raw id / name for
-/// yanking (`y` = id, `Y` = name).
-
     pub fn draw(app: &mut App, f: &mut Frame) {
         if app.tab == Tab::Pci {
             return crate::ui::draw_pci(app, f);
