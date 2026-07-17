@@ -31,7 +31,13 @@ Live per-device activity is Linux-only — [why →](#activity-metrics-linux).
 > [!NOTE]
 > The shell installer and prebuilt links need a published GitHub release. None yet? Install from source.
 
-**Linux / macOS**
+**Homebrew** (Linux · macOS Apple Silicon)
+
+```sh
+brew install gnomeria/tap/usbtree
+```
+
+**Linux / macOS** (shell installer)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh
@@ -61,7 +67,7 @@ Or grab a `usbtree_<version>_<os>-<arch>.{tar.gz,zip}` archive from the [latest 
 
 > [!NOTE]
 > **macOS and Windows binaries are not code-signed or notarized.**
-> - **macOS**: the install script clears the quarantine flag; manual downloads need `xattr -d com.apple.quarantine ./usbtree` (or right-click → Open once).
+> - **macOS**: the install script and Homebrew formula clear the quarantine flag; manual downloads need `xattr -d com.apple.quarantine ./usbtree` (or right-click → Open once).
 > - **Windows**: SmartScreen may warn — _More info_ → _Run anyway_, or `Unblock-File usbtree.exe`.
 > Verify the sha256 or build from source if in doubt.
 
