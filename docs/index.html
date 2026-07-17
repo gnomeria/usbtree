@@ -425,51 +425,35 @@
       }
 
       /* ---- install section ---- */
-      .tabs {
+      .install-methods {
         margin-top: 28px;
-        display: grid;
-        gap: 16px;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
       }
-      .tab {
-        background: var(--bg2);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 20px 22px;
-      }
-      .tab h3 {
+      .install-method h3 {
         font-size: 0.95rem;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
-      .tab h3 .os {
+      .install-method h3 .os {
         color: var(--dim);
         font-weight: 400;
         font-size: 0.85em;
       }
-      .tab pre {
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 12px 14px;
-        overflow-x: auto;
-        font-family: var(--mono);
-        font-size: 0.78rem;
-        line-height: 1.6;
+      .install-method .install {
+        margin: 0;
+        max-width: none;
+      }
+      .install-method .install code {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
-      .tab pre .c {
-        color: var(--dim);
-      }
-      .tab pre .g {
-        color: var(--mint);
-      }
-      .tab p {
+      .install-method p {
         color: var(--dim);
         font-size: 0.86rem;
         margin-top: 10px;
       }
-      .tab a {
+      .install-method a {
         color: var(--sky);
       }
       .warn-note {
@@ -932,59 +916,80 @@
         The shell installer and prebuilt binary links require a published GitHub
         release. If no release is available yet, install from source.
       </p>
-      <div class="tabs">
-        <div class="tab">
-          <h3>🐚 Shell script <span class="os">— Linux · macOS</span></h3>
-          <pre><span class="c"># installs to /usr/local/bin or ~/.local/bin</span>
-<span class="g">curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh</span></pre>
+      <div class="install-methods">
+        <div class="install-method">
+          <h3>Homebrew <span class="os">— Linux · macOS arm64</span></h3>
+          <div class="install">
+            <code>brew install gnomeria/tap/usbtree</code>
+            <button type="button" data-copy="brew install gnomeria/tap/usbtree" aria-label="Copy Homebrew install command">copy</button>
+          </div>
           <p>
-            Pin a version with
-            <code style="font-family: var(--mono)">USBTREE_VERSION=0.0.1</code>,
-            pick a directory with
+            Prebuilt binary from
+            <a href="https://github.com/gnomeria/homebrew-tap"
+              >gnomeria/homebrew-tap</a
+            >. Apple Silicon and Linux only (no Intel Mac prebuild).
+          </p>
+        </div>
+        <div class="install-method">
+          <h3>Shell script <span class="os">— Linux · macOS</span></h3>
+          <div class="install">
+            <code>curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh</code>
+            <button type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh | sh" aria-label="Copy shell install command">copy</button>
+          </div>
+          <p>
+            Installs to
+            <code style="font-family: var(--mono)">/usr/local/bin</code> or
+            <code style="font-family: var(--mono)">~/.local/bin</code>. Pin with
+            <code style="font-family: var(--mono)">USBTREE_VERSION</code>,
+            override dir with
             <code style="font-family: var(--mono)">USBTREE_INSTALL_DIR</code>.
-            Checksums are verified automatically.
+            Checksums verified automatically.
           </p>
         </div>
-        <div class="tab">
-          <h3>🪟 PowerShell <span class="os">— Windows</span></h3>
-          <pre><span class="c"># installs to %LOCALAPPDATA%\usbtree\bin, adds it to PATH</span>
-<span class="g">irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex</span></pre>
+        <div class="install-method">
+          <h3>PowerShell <span class="os">— Windows</span></h3>
+          <div class="install">
+            <code>irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex</code>
+            <button type="button" data-copy="irm https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1 | iex" aria-label="Copy PowerShell install command">copy</button>
+          </div>
           <p>
-            Pin a version with
-            <code style="font-family: var(--mono)">$env:USBTREE_VERSION=&quot;0.0.1&quot;</code>,
-            pick a directory with
-            <code style="font-family: var(--mono)">$env:USBTREE_INSTALL_DIR</code>.
-            Checksums are verified automatically; binaries are unsigned, so
-            SmartScreen may warn on first run.
+            Installs to
+            <code style="font-family: var(--mono)">%LOCALAPPDATA%\usbtree\bin</code>
+            and adds it to PATH. Pin with
+            <code style="font-family: var(--mono)">$env:USBTREE_VERSION</code>.
+            Binaries are unsigned — SmartScreen may warn on first run.
           </p>
         </div>
-        <div class="tab">
-          <h3>📦 Prebuilt binary <span class="os">— all platforms</span></h3>
-          <pre><span class="c"># grab it from the latest release</span>
-<span class="g">tar -xzf usbtree_*_linux-amd64.tar.gz
-./usbtree</span></pre>
+        <div class="install-method">
+          <h3>Prebuilt binary <span class="os">— all platforms</span></h3>
+          <div class="install">
+            <code>tar -xzf usbtree_*_linux-amd64.tar.gz &amp;&amp; ./usbtree</code>
+            <button type="button" data-copy="tar -xzf usbtree_*_linux-amd64.tar.gz && ./usbtree" aria-label="Copy prebuilt extract command">copy</button>
+          </div>
           <p>
-            Windows: unzip
-            <code style="font-family: var(--mono)"
-              >usbtree_*_windows-amd64.zip</code
-            >
-            and run <code style="font-family: var(--mono)">usbtree.exe</code>.
+            Grab the archive from the
             <a href="https://github.com/gnomeria/usbtree/releases/latest"
-              >Latest release →</a
-            >
+              >latest release</a
+            >. Windows: unzip
+            <code style="font-family: var(--mono)">usbtree_*_windows-amd64.zip</code>
+            and run
+            <code style="font-family: var(--mono)">usbtree.exe</code>.
           </p>
           <p class="warn-note">
-            ⚠ Binaries are not code-signed/notarized. macOS:
+            Binaries are not code-signed/notarized. macOS:
             <code style="font-family: var(--mono)"
               >xattr -d com.apple.quarantine ./usbtree</code
             >
-            (the install script does this for you). Windows: SmartScreen →
-            <i>More info</i> → <i>Run anyway</i>. Verify checksums if in doubt.
+            (shell installer and Homebrew formula clear quarantine). Windows:
+            SmartScreen → <i>More info</i> → <i>Run anyway</i>.
           </p>
         </div>
-        <div class="tab">
-          <h3>🦀 Cargo <span class="os">— from source</span></h3>
-          <pre><span class="g">cargo install --git https://github.com/gnomeria/usbtree</span></pre>
+        <div class="install-method">
+          <h3>Cargo <span class="os">— from source</span></h3>
+          <div class="install">
+            <code>cargo install --git https://github.com/gnomeria/usbtree</code>
+            <button type="button" data-copy="cargo install --git https://github.com/gnomeria/usbtree" aria-label="Copy cargo install command">copy</button>
+          </div>
           <p>
             Or clone and
             <code style="font-family: var(--mono)">cargo build --release</code>.
@@ -1074,6 +1079,16 @@
         navigator.clipboard.writeText(CMDS[os].cmd).then(() => {
           btn.textContent = "copied ✓";
           setTimeout(() => (btn.textContent = "copy"), 1500);
+        });
+      });
+
+      document.querySelectorAll("[data-copy]").forEach((b) => {
+        b.addEventListener("click", () => {
+          navigator.clipboard.writeText(b.dataset.copy).then(() => {
+            const prev = b.textContent;
+            b.textContent = "copied ✓";
+            setTimeout(() => (b.textContent = prev), 1500);
+          });
         });
       });
     </script>
