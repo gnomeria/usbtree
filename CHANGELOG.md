@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/gnomeria/usbtree/compare/v0.1.0...v0.1.1) (2026-07-17)
+
+
+### Documentation
+
+* add Homebrew install and align install section UI ([#71](https://github.com/gnomeria/usbtree/issues/71)) ([71c1ce7](https://github.com/gnomeria/usbtree/commit/71c1ce789f3cc0ed61e317b104b9e6cfbf0a644d))
+* point Homebrew install link at gnomeria/tap ([#73](https://github.com/gnomeria/usbtree/issues/73)) ([171c884](https://github.com/gnomeria/usbtree/commit/171c884c0d192391c1e6b7c24279b44b3e9df0de))
+
 ## [0.1.0](https://github.com/gnomeria/usbtree/compare/v0.0.10...v0.1.0) (2026-07-16)
 
 
