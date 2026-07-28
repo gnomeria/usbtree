@@ -859,9 +859,9 @@ dependencies = [
 
 [[package]]
 name = "pci-info"
-version = "0.3.4"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bc6202d1ceb565869d3d339c184a7db3682806ba15ba19b0b024a9dc5268ae1"
+checksum = "0d55a3a5652c40e1b846e69b8c60a4f3eadee6ecaf0a1ddbb646f7544de449d9"
 dependencies = [
  "core-foundation",
  "libc",
