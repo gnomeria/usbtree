@@ -19,6 +19,7 @@ fn dev(name: &str, vid: u16, pid: u16, class: u8, ifaces: &[u8]) -> Device {
             devnum: 0,
             max_power_ma: None,
             interfaces: Vec::new(),
+            platform: None,
         }
     }
 
@@ -114,6 +115,23 @@ C 03  Human Interface Device\n\
         let d = dev("1-9", 0x07fd, 0x000b, 0xef, &[0xff, 0x01, 0x01]);
         assert_eq!(d.effective_class(), 0x01);
         assert_eq!(d.class_name(), "Audio");
+    }
+
+    #[test]
+    fn troubleshooting_detects_common_topology_issues() {
+        let devices = demo_scan(0);
+        let audio = devices.iter().find(|d| d.name == "1-2").unwrap();
+        let audio_hints = troubleshooting_hints(&devices, audio);
+        assert!(audio_hints.iter().any(|h| h.contains("requests 500 mA")));
+        assert!(audio_hints.iter().any(|h| h.contains("serial number")));
+
+        let keyboard = devices.iter().find(|d| d.name == "1-3.1").unwrap();
+        let keyboard_hints = troubleshooting_hints(&devices, keyboard);
+        assert!(
+            keyboard_hints
+                .iter()
+                .any(|h| h.contains("low/full-speed device behind a high-speed hub"))
+        );
     }
 
     #[cfg(target_os = "linux")]

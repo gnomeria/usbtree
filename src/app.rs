@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ratatui::crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -48,6 +50,48 @@ fn event_entry(stamp: &str, added: bool, d: &Device) -> LogEvent {
         id: format!("{:04x}:{:04x}", d.vid, d.pid),
         name: d.label(),
     }
+}
+
+fn export_dir() -> PathBuf {
+    std::env::var_os("USBTREE_EXPORT_DIR")
+        .map(PathBuf::from)
+        .or_else(|| usb::config_dir().map(|p| p.join("reports")))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn report_path(env_key: &str, ext: &str) -> PathBuf {
+    std::env::var_os(env_key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| export_dir().join(format!("usbtree-{}.{}", unix_stamp(), ext)))
+}
+
+fn snapshot_path() -> PathBuf {
+    std::env::var_os("USBTREE_SNAPSHOT_PATH")
+        .map(PathBuf::from)
+        .or_else(|| usb::config_dir().map(|p| p.join("snapshot.json")))
+        .unwrap_or_else(|| PathBuf::from("usbtree-snapshot.json"))
+}
+
+fn diff_path() -> PathBuf {
+    std::env::var_os("USBTREE_DIFF_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| export_dir().join(format!("usbtree-diff-{}.txt", unix_stamp())))
+}
+
+fn unix_stamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn write_file(path: &PathBuf, body: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, body)
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -550,6 +594,62 @@ impl App {
         self.toast = Some((msg, Instant::now(), ok));
     }
 
+    pub fn export_json(&mut self) {
+        let path = report_path("USBTREE_JSON_PATH", "json");
+        let body = crate::report::json(&self.devices);
+        self.write_export(path, body, "JSON report");
+    }
+
+    pub fn export_markdown(&mut self) {
+        let path = report_path("USBTREE_MARKDOWN_PATH", "md");
+        let body = crate::report::markdown(&self.devices);
+        self.write_export(path, body, "Markdown report");
+    }
+
+    pub fn save_snapshot(&mut self) {
+        let path = snapshot_path();
+        let body = crate::report::json(&self.devices);
+        self.write_export(path, body, "snapshot");
+    }
+
+    pub fn diff_snapshot(&mut self) {
+        let path = snapshot_path();
+        let result = fs::read_to_string(&path)
+            .map_err(|e| format!("read {} failed: {e}", path.display()))
+            .and_then(|body| {
+                crate::report::parse_snapshot_devices(&body)
+                    .map_err(|e| format!("parse {} failed: {e}", path.display()))
+            })
+            .map(|previous| crate::report::diff(&previous, &self.devices));
+        match result {
+            Ok(diff) => {
+                let diff_path = diff_path();
+                match write_file(&diff_path, &diff) {
+                    Ok(()) => {
+                        let summary = diff.lines().next().unwrap_or("diff complete");
+                        self.toast = Some((
+                            format!("{summary}; saved {}", diff_path.display()),
+                            Instant::now(),
+                            true,
+                        ));
+                    }
+                    Err(e) => {
+                        self.toast = Some((format!("diff save failed: {e}"), Instant::now(), false));
+                    }
+                }
+            }
+            Err(e) => self.toast = Some((e, Instant::now(), false)),
+        }
+    }
+
+    fn write_export(&mut self, path: PathBuf, body: String, what: &str) {
+        let (msg, ok) = match write_file(&path, &body) {
+            Ok(()) => (format!("saved {what} to {}", path.display()), true),
+            Err(e) => (format!("{what} export failed: {e}"), false),
+        };
+        self.toast = Some((msg, Instant::now(), ok));
+    }
+
     pub fn nav(&mut self, delta: isize) {
         let (state, len) = match (self.tab, self.focus) {
             (Tab::Pci, _) => (&mut self.pci_list, self.pci_rows.len()),
@@ -778,15 +878,15 @@ impl App {
         if let Some((current, original)) = self.theme_picker {
             let mut next_current = current;
             let mut close = false;
-            
+
             match code {
                 ratatui::crossterm::event::KeyCode::Up | ratatui::crossterm::event::KeyCode::Char('k') => {
                     next_current = current.saturating_sub(1);
                 }
-                ratatui::crossterm::event::KeyCode::Down | ratatui::crossterm::event::KeyCode::Char('j') => {
-                    if current + 1 < crate::ui::theme::THEME_NAMES.len() {
-                        next_current += 1;
-                    }
+                ratatui::crossterm::event::KeyCode::Down | ratatui::crossterm::event::KeyCode::Char('j')
+                    if current + 1 < crate::ui::theme::THEME_NAMES.len() =>
+                {
+                    next_current += 1;
                 }
                 ratatui::crossterm::event::KeyCode::Enter | ratatui::crossterm::event::KeyCode::Char(' ') => {
                     close = true;
@@ -797,7 +897,7 @@ impl App {
                 }
                 _ => {}
             }
-            
+
             crate::COLOR_THEME.store(next_current as u8, std::sync::atomic::Ordering::Relaxed);
             if close {
                 self.theme_picker = None;

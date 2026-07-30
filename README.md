@@ -18,11 +18,15 @@ Cross-platform TUI for inspecting the USB device tree (Linux, macOS, Windows). E
 | Device tree — hubs, classes, speeds, tree rails      |      ✅       |  ✅   |   ✅    |
 | Friendly names (`overrides.ids` + usb.ids)           |      ✅       |  ✅   |   ✅    |
 | Hot-plug watch + timestamped event log               |      ✅       |  ✅   |   ✅    |
-| Detail panel — sysfs path, vid:pid, serial, children |      ✅       |  ✅   |   ✅    |
+| Detail panel — tree path, vid:pid, serial, children |      ✅       |  ✅   |   ✅    |
+| Controller / bus / port context                      |      ✅       |  ✅   |   ✅    |
+| JSON / Markdown reports                              |      ✅       |  ✅   |   ✅    |
+| Snapshot diff                                        |      ✅       |  ✅   |   ✅    |
+| Troubleshooting hints                                |      ✅       |  ✅   |   ✅    |
 | Device power — advertised `bMaxPower`                |      ✅       |  ✅   |    —    |
 | Live activity sparklines — URBs/s (unprivileged)     |      ✅       |   —   |    —    |
 | Real bandwidth — bytes/s via usbmon (root)           |      ✅       |   —   |    —    |
-| Prebuilt binaries                                    | amd64 · arm64 | arm64 |  amd64  |
+| Prebuilt binaries                                    | amd64 · arm64 | amd64 · arm64 |  amd64  |
 
 Live per-device activity is Linux-only — [why →](#activity-metrics-linux).
 
@@ -31,7 +35,7 @@ Live per-device activity is Linux-only — [why →](#activity-metrics-linux).
 > [!NOTE]
 > The shell installer and prebuilt links need a published GitHub release. None yet? Install from source.
 
-**Homebrew** (Linux · macOS Apple Silicon)
+**Homebrew** (Linux · macOS)
 
 ```sh
 brew install gnomeria/tap/usbtree
@@ -63,7 +67,7 @@ Installers verify the archive's sha256 against `checksums.txt` and install to `/
 | `USBTREE_INSTALL_DIR`  | install directory override                                 |
 | `USBTREE_SUDO_SYMLINK` | `1` also symlinks into `/usr/local/bin` via `sudo`, so `sudo usbtree` finds it for usbmon bytes/s |
 
-Or grab a `usbtree_<version>_<os>-<arch>.{tar.gz,zip}` archive from the [latest release](https://github.com/gnomeria/usbtree/releases/latest); each sha256 is in `checksums.txt`.
+Or grab a `usbtree_<version>_<os>-<arch>.{tar.gz,zip}` archive from the [latest release](https://github.com/gnomeria/usbtree/releases/latest); each sha256 is in `checksums.txt`. macOS archives are published for both `darwin-amd64` and `darwin-arm64`.
 
 > [!NOTE]
 > **macOS and Windows binaries are not code-signed or notarized.**
@@ -78,16 +82,20 @@ Or grab a `usbtree_<version>_<os>-<arch>.{tar.gz,zip}` archive from the [latest 
 - Composite/Misc (0xef) devices classified by interface class, so e.g. a MOTU M2 shows as Audio, not Misc
 - Hot-plug watch — plugged flash green, unplugged linger as red ghosts for 30 s, all events logged with timestamps
 - Live per-device activity (Linux) — inline sparklines + detail-pane bandwidth graph; URBs/s unprivileged, real bytes/s via usbmon (root, see below)
-- Detail panel — sysfs path, vid:pid, vendor, class, speed, `bMaxPower`, serial, connected children
+- Detail panel — sysfs-style path, controller and hub chain, platform location, vid:pid, vendor, class, speed, configuration, endpoints, hints, `bMaxPower`, serial, connected children
 - Safe eject (Linux, unprivileged) — `e` on a mass-storage device unmounts + cuts port power via udisks2, with a confirm dialog
 - PCI view (`p`) — flat address-sorted PCI list with detail pane (prog-if, subsystem, link speed/width, NUMA, IOMMU group, power state)
-- Live filter (`/`), yank (`y` vid:pid, `Y` full details), `--dump` prints the tree once (no TUI)
+- Live filter (`/`), yank (`y` vid:pid, `Y` full details), `--dump`/`--json`/`--markdown` report modes, `--snapshot` + `--diff` before/after comparison
 
 ## Usage
 
 ```sh
 usbtree                 # TUI
 usbtree --dump          # print the tree once and exit
+usbtree --json          # machine-readable inventory snapshot
+usbtree --markdown      # support-ticket friendly report
+usbtree --snapshot before.json
+usbtree --diff before.json
 usbtree --updatelist    # download the latest usb.ids into the config dir
 usbtree --demo          # fake tree with scripted hot-plug + traffic (no hardware)
 usbtree --light         # use light theme (for light background terminals)
@@ -102,6 +110,10 @@ usbtree --light         # use light theme (for light background terminals)
 | `/`                   | filter tree         |
 | `Tab`                 | focus tree / events |
 | `y` / `Y`             | yank id / details   |
+| `x`                   | export JSON report  |
+| `m`                   | export Markdown report |
+| `s`                   | save snapshot       |
+| `d`                   | diff against snapshot |
 | `e`                   | safe-eject storage  |
 | `p`                   | toggle USB / PCI    |
 | `r`                   | force rescan        |
@@ -111,6 +123,18 @@ usbtree --light         # use light theme (for light background terminals)
 ## Configuration
 
 Config lives in `~/.config/usbtree/` (`%APPDATA%\usbtree\` on Windows):
+
+TUI exports default to `~/.config/usbtree/reports/usbtree-<timestamp>.json`,
+`~/.config/usbtree/reports/usbtree-<timestamp>.md`, and
+`~/.config/usbtree/snapshot.json`. Override paths with:
+
+| Variable                 | Effect                              |
+| ------------------------ | ----------------------------------- |
+| `USBTREE_EXPORT_DIR`     | directory for TUI JSON/Markdown/diff exports |
+| `USBTREE_JSON_PATH`      | exact path for `x` JSON export      |
+| `USBTREE_MARKDOWN_PATH`  | exact path for `m` Markdown export  |
+| `USBTREE_SNAPSHOT_PATH`  | exact path used by `s` and `d`      |
+| `USBTREE_DIFF_PATH`      | exact path for `d` diff output      |
 
 - **`overrides.ids`** — personal names, one `vvvv:pppp Friendly Name` per line (`#` comments OK). Wins over descriptor strings and usb.ids:
 

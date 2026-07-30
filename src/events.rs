@@ -55,6 +55,10 @@ use crate::app::{App, Tab, RESCAN_INTERVAL};
                             KeyCode::Char('r') => app.rescan(),
                             KeyCode::Char('y') if app.tab == Tab::Usb => app.yank(false),
                             KeyCode::Char('Y') if app.tab == Tab::Usb => app.yank(true),
+                            KeyCode::Char('x') if app.tab == Tab::Usb => app.export_json(),
+                            KeyCode::Char('m') if app.tab == Tab::Usb => app.export_markdown(),
+                            KeyCode::Char('s') if app.tab == Tab::Usb => app.save_snapshot(),
+                            KeyCode::Char('d') if app.tab == Tab::Usb => app.diff_snapshot(),
                             KeyCode::Char('t') => {
                                 app.open_theme_picker();
                             }

@@ -392,14 +392,9 @@ pub fn fmt_rate(v: u64, bytes: bool) -> String {
     }
 }
 
-/// USB endpoint transfer-type name from `bmAttributes` bits 0-1.
-pub fn ep_type(t: u8) -> &'static str {
-    ["ctrl", "iso", "bulk", "int"][(t & 0x03) as usize]
-}
-
 /// BCD version word (bcdUSB / bcdDevice) as a dotted string: 0x0200 -> "2.00".
 pub fn bcd(v: u16) -> String {
-    format!("{:x}.{:02x}", v >> 8, v & 0xff)
+    usb::bcd_version(v)
 }
 
 /// Standard base64, no padding elided. ~15 lines beats an extra crate.
@@ -572,6 +567,8 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                 ("/", "filter"),
                 ("tab", "focus"),
                 ("y/Y", "yank"),
+                ("x/m", "export"),
+                ("s/d", "snap/diff"),
             ];
             if app.can_eject() {
                 keys.push(("e", "eject"));
@@ -881,20 +878,45 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
             Line::from(format!("{} {}", d.icon(), d.label()).fg(theme::text()).bold()),
             Line::from(d.vendor_name().fg(theme::dim())),
             Line::from("─".repeat(24).fg(theme::faint())),
-            Line::from(vec![key("sysfs"), d.name.clone().fg(theme::text())]),
-            Line::from(vec![
-                key("vid:pid"),
-                format!("{:04x}:{:04x}", d.vid, d.pid).fg(theme::accent()),
-            ]),
-            Line::from(vec![
-                key("class"),
-                d.class_name().fg(class_color(d.effective_class())),
-                // device-level triple bDeviceClass:SubClass:Protocol (name is the
-                // friendly effective class; the code is the raw device descriptor)
-                format!("  {:02x}:{:02x}:{:02x}", d.class, d.subclass, d.protocol)
-                    .fg(theme::faint()),
-            ]),
+            Line::from(vec![key("path"), d.name.clone().fg(theme::text())]),
         ];
+        if let Some(root) = usb::root_hub_for(&app.render, d) {
+            let mut spans = vec![key("controller")];
+            if let Some(product) = &root.product {
+                spans.push(product.clone().fg(theme::text()));
+            }
+            if let Some(manufacturer) = &root.manufacturer {
+                spans.push(format!("  {manufacturer}").fg(theme::faint()));
+            }
+            lines.push(Line::from(spans));
+        }
+        if let Some(platform) = &d.platform {
+            lines.push(Line::from(vec![
+                key("platform"),
+                platform.clone().fg(theme::text()),
+            ]));
+        }
+        let chain = usb::hub_chain(&app.render, d);
+        if !chain.is_empty() {
+            let names = chain
+                .iter()
+                .map(|hub| hub.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" > ");
+            lines.push(Line::from(vec![key("chain"), names.fg(theme::text())]));
+        }
+        lines.push(Line::from(vec![
+            key("vid:pid"),
+            format!("{:04x}:{:04x}", d.vid, d.pid).fg(theme::accent()),
+        ]));
+        lines.push(Line::from(vec![
+            key("class"),
+            d.class_name().fg(class_color(d.effective_class())),
+            // device-level triple bDeviceClass:SubClass:Protocol (name is the
+            // friendly effective class; the code is the raw device descriptor)
+            format!("  {:02x}:{:02x}:{:02x}", d.class, d.subclass, d.protocol)
+                .fg(theme::faint()),
+        ]));
         if d.usb_version != 0 {
             lines.push(Line::from(vec![
                 key("usb"),
@@ -907,6 +929,22 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                 key("rev"),
                 bcd(d.device_version).fg(theme::text()),
             ]));
+        }
+        if d.config_attributes.is_some() || d.max_power_ma.is_some() {
+            let mut spans = vec![key("config"), "1 active".fg(theme::text())];
+            if let Some(a) = d.config_attributes {
+                spans.push(
+                    if a & 0x40 != 0 { "  self-powered" } else { "  bus-powered" }
+                        .fg(theme::faint()),
+                );
+                if a & 0x20 != 0 {
+                    spans.push("  remote-wakeup".fg(theme::faint()));
+                }
+            }
+            if let Some(ma) = d.max_power_ma {
+                spans.push(format!("  {ma} mA max").fg(theme::faint()));
+            }
+            lines.push(Line::from(spans));
         }
         if let Some((glyph, human, color)) = speed_badge(&d.speed) {
             lines.push(Line::from(vec![
@@ -921,16 +959,6 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                 format!("{ma} mA").fg(theme::text()),
                 "  max".fg(theme::faint()),
             ]));
-        }
-        if let Some(a) = d.config_attributes {
-            let mut spans = vec![
-                key("powered"),
-                if a & 0x40 != 0 { "app" } else { "bus" }.fg(theme::text()),
-            ];
-            if a & 0x20 != 0 {
-                spans.push("  remote-wakeup".fg(theme::faint()));
-            }
-            lines.push(Line::from(spans));
         }
         if let Some(s) = &d.serial {
             lines.push(Line::from(vec![key("serial"), s.clone().fg(theme::text())]));
@@ -965,7 +993,7 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                     lines.push(Line::from(vec![
                         format!("    {:#04x} ", e.address).fg(theme::dim()),
                         if e.input { "IN  " } else { "OUT " }.fg(theme::accent()),
-                        format!("{:<4} ", ep_type(e.transfer)).fg(theme::text()),
+                        format!("{:<11} ", usb::transfer_type_name(e.transfer)).fg(theme::text()),
                         format!("{}B", e.max_packet).fg(theme::dim()),
                         match e.transfer {
                             1 | 3 if e.interval != 0 => format!("  @{}", e.interval),
@@ -974,6 +1002,17 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                         .fg(theme::faint()),
                     ]));
                 }
+            }
+        }
+        let hints = usb::troubleshooting_hints(&app.render, d);
+        if !hints.is_empty() {
+            lines.push(Line::from("─".repeat(24).fg(theme::faint())));
+            lines.push(Line::from("hints".fg(theme::dim())));
+            for hint in hints {
+                lines.push(Line::from(vec![
+                    "! ".fg(theme::yellow()).bold(),
+                    hint.fg(theme::text()),
+                ]));
             }
         }
         let inner = block.inner(area);

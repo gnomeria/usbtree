@@ -3,7 +3,7 @@ name: Release
 # Fires only on semver tags. Stable (v1.2.3) cuts a full release; prerelease
 # (v1.2.3-rc.1) is flagged as a GitHub pre-release.
 #
-# Modern platforms only (no darwin-amd64). Asset naming:
+# Asset naming:
 #   usbtree_<version>_<os>-<arch>.tar.gz   (linux, darwin)
 #   usbtree_<version>_<os>-<arch>.zip      (windows)
 #   checksums.txt                          (sha256 of every archive)
@@ -48,6 +48,7 @@ jobs:
           # linux → static musl: no glibc version floor, runs on any distro.
           - { name: linux-amd64, runner: ubuntu-24.04, os: linux, target: x86_64-unknown-linux-musl }
           - { name: linux-arm64, runner: ubuntu-24.04-arm, os: linux, target: aarch64-unknown-linux-musl }
+          - { name: darwin-amd64, runner: macos-15-intel, os: macos, target: x86_64-apple-darwin }
           - { name: darwin-arm64, runner: macos-14, os: macos, target: aarch64-apple-darwin }
           - { name: windows-amd64, runner: windows-latest, os: windows, target: x86_64-pc-windows-msvc }
     steps:

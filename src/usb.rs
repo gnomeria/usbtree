@@ -45,6 +45,9 @@ pub struct Device {
     /// Linux: unprivileged sysfs `descriptors`. macOS: from the config open we
     /// already do for power. Empty on Windows (no descriptor read there yet).
     pub interfaces: Vec<Interface>,
+    /// OS-native location/controller context for the detail pane. The portable
+    /// `name` remains the stable tree key; this is only reader-facing metadata.
+    pub platform: Option<String>,
 }
 
 /// One interface alternate setting and its endpoints.
@@ -146,6 +149,14 @@ impl Device {
 
     pub fn class_name(&self) -> &'static str {
         class_name(self.effective_class())
+    }
+
+    pub fn is_self_powered(&self) -> bool {
+        self.config_attributes.is_some_and(|a| a & 0x40 != 0)
+    }
+
+    pub fn is_bus_powered(&self) -> bool {
+        self.config_attributes.is_some_and(|a| a & 0x40 == 0)
     }
 
     // ponytail: no U+FE0F (VS16) on any glyph here. VS16 forces emoji
@@ -289,6 +300,16 @@ pub fn class_name(class: u8) -> &'static str {
     }
 }
 
+pub fn transfer_type_name(t: u8) -> &'static str {
+    match t & 0x03 {
+        0 => "control",
+        1 => "isochronous",
+        2 => "bulk",
+        3 => "interrupt",
+        _ => unreachable!(),
+    }
+}
+
 /// Enumerate USB devices via nusb (Linux, macOS, Windows).
 /// Root hubs are synthesized from the bus list; device tree paths are built
 /// from each device's port chain, matching Linux sysfs naming.
@@ -333,6 +354,7 @@ pub fn scan() -> Vec<Device> {
                 devnum: 1, // root hub is always device 1 on its bus
                 max_power_ma: None,
                 interfaces: Vec::new(),
+                platform: bus_platform_context(&bus),
             });
         }
     }
@@ -378,10 +400,47 @@ pub fn scan() -> Vec<Device> {
             devnum: d.device_address(),
             max_power_ma,
             interfaces,
+            platform: device_platform_context(&d),
         });
     }
     devices.sort_by_key(|d| sort_key(&d.name));
     devices
+}
+
+#[cfg(target_os = "macos")]
+fn bus_platform_context(bus: &nusb::BusInfo) -> Option<String> {
+    Some(format!(
+        "IOKit bus {}, location 0x{:08x}",
+        bus.bus_id(),
+        bus.location_id()
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bus_platform_context(_bus: &nusb::BusInfo) -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn device_platform_context(d: &nusb::DeviceInfo) -> Option<String> {
+    let ports = d
+        .port_chain()
+        .iter()
+        .map(u8::to_string)
+        .collect::<Vec<_>>()
+        .join(".");
+    Some(format!(
+        "IOKit location 0x{:08x}, bus {}, addr {}, ports {}",
+        d.location_id(),
+        d.bus_id(),
+        d.device_address(),
+        ports
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn device_platform_context(_d: &nusb::DeviceInfo) -> Option<String> {
+    None
 }
 
 /// `bMaxPower` + interfaces on Linux: both from unprivileged sysfs, no device
@@ -504,7 +563,7 @@ fn overrides() -> &'static HashMap<(u16, u16), String> {
     })
 }
 
-fn config_dir() -> Option<PathBuf> {
+pub fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
@@ -722,6 +781,7 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         devnum: 0,
         max_power_ma: power,
         interfaces: demo_interfaces(name),
+        platform: None,
     };
     let t = t % 15;
     // attrs: 0x80 bus-powered, 0xa0 +remote-wakeup, 0xe0 self-powered +wakeup
@@ -840,6 +900,87 @@ pub fn flatten(devices: &[Device], collapsed: &HashSet<String>) -> Vec<(usize, u
     rows
 }
 
+pub fn root_hub_for<'a>(devices: &'a [Device], d: &Device) -> Option<&'a Device> {
+    if d.is_root_hub() {
+        return None;
+    }
+    let bus = d.name.split_once('-')?.0;
+    let root_name = format!("usb{bus}");
+    devices.iter().find(|root| root.name == root_name)
+}
+
+pub fn hub_chain<'a>(devices: &'a [Device], d: &Device) -> Vec<&'a Device> {
+    let mut chain = Vec::new();
+    let mut parent = d.parent_name();
+    while let Some(name) = parent {
+        let Some(p) = devices.iter().find(|candidate| candidate.name == name) else {
+            break;
+        };
+        chain.push(p);
+        parent = p.parent_name();
+    }
+    chain.reverse();
+    chain
+}
+
+pub fn troubleshooting_hints(devices: &[Device], d: &Device) -> Vec<String> {
+    if d.is_root_hub() {
+        return Vec::new();
+    }
+
+    let mut hints = Vec::new();
+    let class = d.effective_class();
+    let speed = speed_number(&d.speed);
+    let ancestors = hub_chain(devices, d);
+
+    if speed.is_some_and(|s| s <= 12.0)
+        && ancestors
+            .iter()
+            .any(|hub| speed_number(&hub.speed).is_some_and(|s| s >= 480.0))
+    {
+        hints.push("low/full-speed device behind a high-speed hub".to_string());
+    }
+
+    if d.usb_version >= 0x0300 && speed.is_some_and(|s| s <= 480.0) {
+        hints.push(format!(
+            "USB {} device negotiated below SuperSpeed",
+            bcd_version(d.usb_version)
+        ));
+    } else if d.usb_version >= 0x0200 && speed.is_some_and(|s| s < 480.0) {
+        hints.push(format!(
+            "USB {} device negotiated below high speed",
+            bcd_version(d.usb_version)
+        ));
+    }
+
+    if d.is_bus_powered() && d.max_power_ma.is_some_and(|ma| ma >= 500) {
+        hints.push(format!(
+            "bus-powered device requests {} mA",
+            d.max_power_ma.unwrap_or_default()
+        ));
+    }
+
+    if matches!(class, 0x01 | 0x08 | 0x0e)
+        && ancestors
+            .iter()
+            .any(|hub| hub.effective_class() == 0x09 && hub.is_bus_powered())
+    {
+        hints.push(format!(
+            "{} device behind a bus-powered hub",
+            d.class_name().to_lowercase()
+        ));
+    }
+
+    if matches!(class, 0x01 | 0x08 | 0x0e) && d.serial.is_none() {
+        hints.push(format!(
+            "{} device does not expose a serial number",
+            d.class_name().to_lowercase()
+        ));
+    }
+
+    hints
+}
+
 fn push_subtree(
     devices: &[Device],
     idx: usize,
@@ -866,6 +1007,14 @@ pub fn child_count(devices: &[Device], name: &str) -> usize {
         .iter()
         .filter(|d| d.parent_name().as_deref() == Some(name))
         .count()
+}
+
+pub fn bcd_version(v: u16) -> String {
+    format!("{:x}.{:02x}", v >> 8, v & 0xff)
+}
+
+fn speed_number(speed: &str) -> Option<f32> {
+    speed.parse().ok()
 }
 
 /// Hot-plug diff: (added, removed) relative to `old`.

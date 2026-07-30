@@ -815,14 +815,23 @@
           </p>
         </div>
         <div class="card">
+          <div class="ico">🧾</div>
+          <h3>Reports and diffs</h3>
+          <p>
+            Use <code>--json</code> or <code>--markdown</code> for inventories,
+            <code>--snapshot before.json</code> before a hardware change, then
+            <code>--diff before.json</code> to see what moved.
+          </p>
+        </div>
+        <div class="card">
           <div class="ico">🦀</div>
           <h3>Pure Rust, zero setup</h3>
           <p>
             Built on nusb and ratatui: no root, no libusb, no drivers. One
             static binary per OS — a <b>~1.5 MB</b> download (~5–7 MB on disk),
             no runtime deps.
-            <code>--dump</code> for scripts, <code>--demo</code> to try it
-            without hardware.
+            <code>--dump</code> for scripts, <code>--demo</code> to try it without
+            hardware.
           </p>
         </div>
       </div>
@@ -871,6 +880,18 @@
               <td class="yes">✓</td>
             </tr>
             <tr>
+              <td>Controller context <span class="dim">bus, address, ports</span></td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+            </tr>
+            <tr>
+              <td>Reports, snapshot diff, troubleshooting hints</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+              <td class="yes">✓</td>
+            </tr>
+            <tr>
               <td>Device power <span class="dim">bMaxPower, advertised</span></td>
               <td class="yes">✓</td>
               <td class="yes">✓</td>
@@ -897,7 +918,7 @@
             <tr>
               <td>Prebuilt binaries</td>
               <td class="yes">amd64 · arm64</td>
-              <td class="yes">arm64</td>
+              <td class="yes">amd64 · arm64</td>
               <td class="yes">amd64</td>
             </tr>
           </tbody>
@@ -908,8 +929,8 @@
     <section class="wrap" id="install">
       <h2><span class="hash">#</span>Install</h2>
       <p class="sub">
-        Release archives ship for linux-amd64, linux-arm64, darwin-arm64, and
-        windows-amd64, each sha256-listed in
+        Release archives ship for linux-amd64, linux-arm64, darwin-amd64,
+        darwin-arm64, and windows-amd64, each sha256-listed in
         <code style="font-family: var(--mono)">checksums.txt</code>.
       </p>
       <p class="install-note">
@@ -918,7 +939,7 @@
       </p>
       <div class="install-methods">
         <div class="install-method">
-          <h3>Homebrew <span class="os">— Linux · macOS arm64</span></h3>
+          <h3>Homebrew <span class="os">— Linux · macOS</span></h3>
           <div class="install">
             <code>brew install gnomeria/tap/usbtree</code>
             <button type="button" data-copy="brew install gnomeria/tap/usbtree" aria-label="Copy Homebrew install command">copy</button>
@@ -927,7 +948,8 @@
             Prebuilt binary from
             <a href="https://github.com/gnomeria/tap"
               >gnomeria/tap</a
-            >. Apple Silicon and Linux only (no Intel Mac prebuild).
+            >. The shell installer below uses GitHub release archives for both
+            Intel and Apple Silicon Macs.
           </p>
         </div>
         <div class="install-method">
@@ -1011,6 +1033,8 @@
         <div class="key"><kbd>/</kbd><span>filter tree</span></div>
         <div class="key"><kbd>Tab</kbd><span>focus tree / events</span></div>
         <div class="key"><kbd>y / Y</kbd><span>yank id / details</span></div>
+        <div class="key"><kbd>x / m</kbd><span>export JSON / Markdown</span></div>
+        <div class="key"><kbd>s / d</kbd><span>snapshot / diff</span></div>
         <div class="key"><kbd>e</kbd><span>safe-eject storage</span></div>
         <div class="key"><kbd>p</kbd><span>toggle USB / PCI</span></div>
         <div class="key"><kbd>r</kbd><span>force rescan</span></div>

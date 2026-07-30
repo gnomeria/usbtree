@@ -3,6 +3,7 @@ mod cli;
 mod events;
 mod metrics;
 mod pci;
+mod report;
 mod ui;
 mod usb;
 
@@ -13,24 +14,49 @@ pub static ICON_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8
 pub static COLOR_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(6);
 
 fn main() -> std::io::Result<()> {
-    if std::env::args().any(|a| a == "--nerd-font" || a == "--nerd-fonts") {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.iter().any(|a| a == "--nerd-font" || a == "--nerd-fonts") {
         ICON_THEME.store(1, std::sync::atomic::Ordering::Relaxed);
-    } else if std::env::args().any(|a| a == "--ascii") {
+    } else if args.iter().any(|a| a == "--ascii") {
         ICON_THEME.store(2, std::sync::atomic::Ordering::Relaxed);
     }
-    if std::env::args().any(|a| a == "--light") {
+    if args.iter().any(|a| a == "--light") {
         COLOR_THEME.store(3, std::sync::atomic::Ordering::Relaxed);
     }
-    let demo = std::env::args().any(|a| a == "--demo");
-    if std::env::args().any(|a| a == "--pci") {
+    let demo = args.iter().any(|a| a == "--demo");
+    if args.iter().any(|a| a == "--pci") {
         pci::dump();
         return Ok(());
     }
-    if std::env::args().any(|a| a == "--dump") {
+    if args.iter().any(|a| a == "--dump") {
         cli::dump(demo);
         return Ok(());
     }
-    if std::env::args().any(|a| a == "--updatelist" || a == "--update-list") {
+    if args.iter().any(|a| a == "--json") {
+        cli::json(demo);
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--markdown") {
+        cli::markdown(demo);
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--snapshot") {
+        let Some(path) = cli::flag_value(&args, "--snapshot") else {
+            eprintln!("--snapshot needs a path, e.g. usbtree --snapshot before.json");
+            std::process::exit(2);
+        };
+        cli::snapshot(demo, path)?;
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--diff") {
+        let Some(path) = cli::flag_value(&args, "--diff") else {
+            eprintln!("--diff needs a snapshot path, e.g. usbtree --diff before.json");
+            std::process::exit(2);
+        };
+        cli::diff(demo, path)?;
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--updatelist" || a == "--update-list") {
         match usb::update_list() {
             Ok((vendors, products, path)) => {
                 println!("usb.ids updated: {vendors} vendors, {products} products");

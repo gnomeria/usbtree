@@ -54,10 +54,6 @@ case "$ARCH" in
     *) die "unsupported architecture: $ARCH" ;;
 esac
 
-if [ "$OS" = "darwin" ] && [ "$ARCH" = "amd64" ]; then
-    die "prebuilt macOS binaries are Apple Silicon only — on Intel Macs run: cargo install --git https://github.com/$REPO"
-fi
-
 # ---- resolve version -------------------------------------------------------
 VERSION="${USBTREE_VERSION:-}"
 if [ -z "$VERSION" ]; then
