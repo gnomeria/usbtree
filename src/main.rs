@@ -13,6 +13,23 @@ pub static ICON_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8
 pub static COLOR_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(6);
 
 fn main() -> std::io::Result<()> {
+    // Reject unknown args up front — silently falling through to the TUI makes a
+    // typo (or a stale binary that predates a flag) look like the flag did nothing.
+    if let Some(bad) = std::env::args().skip(1).find(|a| !cli::KNOWN_FLAGS.contains(&a.as_str())) {
+        eprintln!("usbtree: unknown option `{bad}`\ntry `usbtree --help`");
+        std::process::exit(2);
+    }
+    if std::env::args().any(|a| a == "--version") {
+        cli::version();
+        return Ok(());
+    }
+    if std::env::args().any(|a| a == "--help" || a == "-h") {
+        cli::help();
+        return Ok(());
+    }
+    if std::env::args().any(|a| a == "--upgrade") {
+        return cli::upgrade();
+    }
     if std::env::args().any(|a| a == "--nerd-font" || a == "--nerd-fonts") {
         ICON_THEME.store(1, std::sync::atomic::Ordering::Relaxed);
     } else if std::env::args().any(|a| a == "--ascii") {
