@@ -155,7 +155,7 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 
 Common commands live in the [Taskfile](https://taskfile.dev) — `task -l` lists them (`task demo`, `task test`, `task lint`, `task ci`, `task shots`, `task hooks`). The demo GIF/PNG in `docs/screenshots/` are rendered headlessly by driving `usbtree --demo` with [VHS](https://github.com/charmbracelet/vhs) tapes from `tapes/`, re-committed by the [Screenshots workflow](.github/workflows/screenshots.yml) when `src/` or the tapes change.
 
-Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md); security reports follow [SECURITY.md](SECURITY.md).
+Contributions welcome — see [CONTRIBUTING.md](.github/CONTRIBUTING.md); security reports follow [SECURITY.md](.github/SECURITY.md).
 
 ## License
 
