@@ -22,7 +22,7 @@ usbtree = rust TUI. show USB device tree live. ratatui draw, nusb scan. no root.
 
 ## flags
 
-`--dump` print once no TUI. `--updatelist` fetch fresh usb.ids to config dir. `--demo` fake tree, fake traffic, no hardware. demo loop 30s: SSD in @6s out @24s, webcam out @14s back @20s.
+`--dump` print once no TUI. `--updatelist` fetch fresh usb.ids to config dir. `--demo` fake tree, fake traffic, no hardware. demo loop 30s: SSD in @6s out @24s, webcam out @14s back @20s. `--version`/`--help` in `cli.rs`, keep help list in sync w/ flags. `--upgrade` shells out to `scripts/install.sh` (ps1 on windows) — installer stays single source of install truth, no download logic in rust.
 
 ## rules
 

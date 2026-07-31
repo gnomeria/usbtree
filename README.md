@@ -89,9 +89,16 @@ Or grab a `usbtree_<version>_<os>-<arch>.{tar.gz,zip}` archive from the [latest 
 usbtree                 # TUI
 usbtree --dump          # print the tree once and exit
 usbtree --updatelist    # download the latest usb.ids into the config dir
+usbtree --upgrade       # update to the latest release (re-runs the installer)
+usbtree --version       # print the version
+usbtree --help          # list all flags (also -h)
 usbtree --demo          # fake tree with scripted hot-plug + traffic (no hardware)
 usbtree --light         # use light theme (for light background terminals)
 ```
+
+`--upgrade` re-runs the official installer for your platform, so it honours the
+same env vars — e.g. `USBTREE_VERSION=0.1.0 usbtree --upgrade` pins a version,
+`USBTREE_INSTALL_DIR` picks the target dir. Homebrew installs: use `brew upgrade usbtree` instead.
 
 | Key                   | Action              |
 | --------------------- | ------------------- |
