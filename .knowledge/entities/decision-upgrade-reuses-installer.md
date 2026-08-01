@@ -12,8 +12,11 @@ symlink. Env vars (`USBTREE_VERSION`, `USBTREE_INSTALL_DIR`, …) are inherited,
 so pinning/downgrading works for free. Rejected: self-replacing binary (needs
 release-asset + sha logic duplicated in Rust, and Windows can't overwrite a
 running exe). Cost: needs network + curl/wget; Homebrew installs should use
-`brew upgrade` instead. The shell one-liner downloads to a temp file before
-running it — a failed fetch piped into `sh` is an empty script that exits 0.
+`brew upgrade` instead. Installer compares the resolved release to the binary
+at its target path: equal versions exit successfully without downloading;
+different versions print the transition before replacement. The shell one-liner
+downloads to a temp file before running it — a failed fetch piped into `sh` is
+an empty script that exits 0.
 
 ## Relations
 - part_of: module-main

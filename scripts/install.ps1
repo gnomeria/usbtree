@@ -48,10 +48,29 @@ if (-not $Version) {
 }
 $Version = $Version -replace '^v', ''
 
+$InstallDir = $env:USBTREE_INSTALL_DIR
+if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'usbtree\bin' }
+$Target = Join-Path $InstallDir "$Bin.exe"
+
+$InstalledVersion = $null
+if (Test-Path $Target -PathType Leaf) {
+    try {
+        $VersionOutput = & $Target --version 2>$null | Select-Object -First 1
+        if ($VersionOutput -match '^usbtree v?(\S+)') { $InstalledVersion = $Matches[1] }
+    } catch {}
+}
+
+if ($InstalledVersion -eq $Version) {
+    Ok "$Bin v$Version is already installed at $Target"
+    return
+} elseif ($InstalledVersion) {
+    Info "updating $Bin v$InstalledVersion -> v$Version (windows-amd64)"
+} else {
+    Info "installing $Bin v$Version (windows-amd64)"
+}
+
 $Asset   = "${Bin}_${Version}_windows-amd64.zip"
 $BaseUrl = "https://github.com/$Repo/releases/download/v$Version"
-
-Info "installing $Bin v$Version (windows-amd64)"
 
 # ---- download + verify -----------------------------------------------------
 $Tmp = Join-Path ([IO.Path]::GetTempPath()) ("usbtree-" + [Guid]::NewGuid().ToString('N'))
@@ -87,11 +106,9 @@ try {
     if (-not (Test-Path $src)) { Die "archive didn't contain $Bin.exe" }
 
     # ---- install ----------------------------------------------------------
-    $InstallDir = $env:USBTREE_INSTALL_DIR
-    if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'usbtree\bin' }
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    Copy-Item $src (Join-Path $InstallDir "$Bin.exe") -Force
-    Ok "installed $InstallDir\$Bin.exe"
+    Copy-Item $src $Target -Force
+    Ok "installed $Target"
 
     # ---- ensure it's on PATH ----------------------------------------------
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

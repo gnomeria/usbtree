@@ -68,10 +68,33 @@ if [ -z "$VERSION" ]; then
 fi
 VERSION="${VERSION#v}"
 
+# ---- pick install dir + detect existing version ---------------------------
+INSTALL_DIR="${USBTREE_INSTALL_DIR:-}"
+if [ -z "$INSTALL_DIR" ]; then
+    if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+        INSTALL_DIR=/usr/local/bin
+    else
+        INSTALL_DIR="$HOME/.local/bin"
+    fi
+fi
+
+INSTALLED_VERSION=""
+if [ -x "$INSTALL_DIR/$BIN" ]; then
+    INSTALLED_VERSION="$("$INSTALL_DIR/$BIN" --version 2>/dev/null \
+        | awk 'NR == 1 && $1 == "usbtree" { sub(/^v/, "", $2); print $2 }')"
+fi
+
+if [ "$INSTALLED_VERSION" = "$VERSION" ]; then
+    ok "$BIN v$VERSION is already installed at $BOLD$INSTALL_DIR/$BIN$RESET"
+    exit 0
+elif [ -n "$INSTALLED_VERSION" ]; then
+    info "updating $BOLD$BIN v$INSTALLED_VERSION → v$VERSION$RESET ($OS-$ARCH)"
+else
+    info "installing $BOLD$BIN v$VERSION$RESET ($OS-$ARCH)"
+fi
+
 ASSET="${BIN}_${VERSION}_${OS}-${ARCH}.tar.gz"
 BASE_URL="https://github.com/$REPO/releases/download/v$VERSION"
-
-info "installing $BOLD$BIN v$VERSION$RESET ($OS-$ARCH)"
 
 # ---- download + verify -----------------------------------------------------
 TMP="$(mktemp -d)"
@@ -108,15 +131,6 @@ fi
 tar -xzf "$TMP/$ASSET" -C "$TMP" || die "couldn't extract $ASSET"
 [ -f "$TMP/$BIN" ] || die "archive didn't contain the $BIN binary"
 
-# ---- pick install dir ------------------------------------------------------
-INSTALL_DIR="${USBTREE_INSTALL_DIR:-}"
-if [ -z "$INSTALL_DIR" ]; then
-    if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
-        INSTALL_DIR=/usr/local/bin
-    else
-        INSTALL_DIR="$HOME/.local/bin"
-    fi
-fi
 mkdir -p "$INSTALL_DIR" || die "couldn't create $INSTALL_DIR"
 
 install -m 755 "$TMP/$BIN" "$INSTALL_DIR/$BIN" 2>/dev/null \
