@@ -34,7 +34,7 @@ Live per-device activity is Linux-only — [why →](#activity-metrics-linux).
 **Homebrew** (Linux · macOS Apple Silicon)
 
 ```sh
-brew install gnomeria/tap/usbtree
+brew install usbtree
 ```
 
 **Linux / macOS** (shell installer)
