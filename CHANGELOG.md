@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/gnomeria/usbtree/compare/v0.1.1...v0.1.2) (2026-08-20)
+
+
+### Features
+
+* **installer:** skip reinstalling current release ([#82](https://github.com/gnomeria/usbtree/issues/82)) ([7573ea3](https://github.com/gnomeria/usbtree/commit/7573ea3fe43e9c453dd388a7908cd8a67ef1013d))
+
+
+### Documentation
+
+* require issue first and before/after TUI screenshots ([#81](https://github.com/gnomeria/usbtree/issues/81)) ([e26cd78](https://github.com/gnomeria/usbtree/commit/e26cd78bd7f6fb1ea08dc41635175b40970d142c))
+
 ## [0.1.1](https://github.com/gnomeria/usbtree/compare/v0.1.0...v0.1.1) (2026-07-31)
 
 
