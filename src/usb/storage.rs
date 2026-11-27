@@ -32,14 +32,7 @@ pub(super) fn populate(devices: &mut [Device]) {
             let bytes = fs::read("/proc/self/mountinfo").unwrap_or_default();
             String::from_utf8_lossy(&bytes).into_owned()
         });
-        add_disk(&entry.path(), table, &mut device.storage);
-    }
-}
-
-fn add_disk(disk: &Path, table: &str, nodes: &mut Vec<StorageNode>) {
-    add_node(disk, table, nodes);
-    for partition in super::partitions(disk) {
-        add_node(&disk.join(partition), table, nodes);
+        add_node(&entry.path(), table, &mut device.storage);
     }
 }
 
@@ -73,6 +66,11 @@ fn add_node(sysfs: &Path, table: &str, nodes: &mut Vec<StorageNode>) {
     });
     for holder in sorted_entries(&sysfs.join("holders")) {
         add_node(&holder.path(), table, nodes);
+    }
+    if !sysfs.join("partition").is_file() {
+        for partition in super::partitions(sysfs) {
+            add_node(&sysfs.join(partition), table, nodes);
+        }
     }
 }
 
@@ -130,6 +128,11 @@ mod tests {
         let crypt = part.join("holders/dm-0");
         let volume = crypt.join("holders/dm-1");
         fs::create_dir_all(&volume).unwrap();
+        let array_part = disk.join("holders/md0/md0p1");
+        fs::create_dir_all(&array_part).unwrap();
+        fs::write(array_part.join("partition"), "1\n").unwrap();
+        fs::create_dir_all(part.join("holders")).unwrap();
+        std::os::unix::fs::symlink(disk.join("holders/md0"), part.join("holders/md0")).unwrap();
         fs::write(part.join("partition"), "1\n").unwrap();
         for number in [10, 2] {
             let other = disk.join(format!("sda{number}"));
@@ -139,15 +142,18 @@ mod tests {
         fs::write(volume.join("dev"), "253:1\n").unwrap();
         fs::create_dir(volume.join("dm")).unwrap();
         fs::write(volume.join("dm/name"), "vg-data vault\n").unwrap();
-        let table = r"1 0 0:44 / /media/Vault rw - btrfs /dev/mapper/vg-data\040vault rw";
+        let table = r"1 0 0:44 / /media/Vault rw - btrfs /dev/mapper/vg-data\040vault rw
+2 0 259:1 / /mnt/array rw - ext4 /dev/md0p1 rw";
         let mut nodes = Vec::new();
-        add_disk(&disk, table, &mut nodes);
+        add_node(&disk, table, &mut nodes);
         add_node(&crypt, table, &mut nodes);
         fs::remove_dir_all(root).unwrap();
         assert_eq!(
             nodes.iter().map(|n| n.path.as_str()).collect::<Vec<_>>(),
             [
                 "/dev/sda",
+                "/dev/md0",
+                "/dev/md0p1",
                 "/dev/sda1",
                 "/dev/dm-0",
                 "/dev/dm-1",
@@ -156,7 +162,8 @@ mod tests {
             ]
         );
         assert!(nodes[0].mounts.is_empty());
-        assert_eq!(nodes[3].mounts, ["/media/Vault"]);
+        assert_eq!(nodes[2].mounts, ["/mnt/array"]);
+        assert_eq!(nodes[5].mounts, ["/media/Vault"]);
     }
 
     #[test]

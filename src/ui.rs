@@ -869,9 +869,11 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
         f.render_stateful_widget(list, area, &mut app.list);
     }
 
-    pub fn draw_detail(app: &App, f: &mut Frame, area: Rect) {
-        let block = pane("details");
+    pub fn draw_detail(app: &mut App, f: &mut Frame, area: Rect) {
+        let mut block = pane("details");
         let Some(&(_, i)) = app.list.selected().and_then(|s| app.rows.get(s)) else {
+            app.detail_view = Rect::default();
+            app.detail_device.clear();
             f.render_widget(block, area);
             return;
         };
@@ -983,10 +985,21 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
             }
         }
         let inner = block.inner(area);
-        f.render_widget(block, area);
         let [kv, spark] =
             Layout::vertical([Constraint::Min(1), Constraint::Length(5)]).areas(inner);
-        f.render_widget(Paragraph::new(lines), kv);
+        app.detail_view = kv;
+        if app.detail_device != d.name {
+            app.detail_device.clone_from(&d.name);
+            app.detail_offset = 0;
+        }
+        let max_offset = lines.len().saturating_sub(usize::from(kv.height));
+        app.detail_offset = app.detail_offset.min(max_offset);
+        if max_offset > 0 {
+            block = block.title_bottom(" PgUp/PgDn ");
+        }
+        f.render_widget(block, area);
+        let visible: Vec<_> = lines.into_iter().skip(app.detail_offset).take(kv.height.into()).collect();
+        f.render_widget(Paragraph::new(visible), kv);
         if let Some(h) = app.rates.get(&d.name) {
             let bytes = app.metrics.is_bytes();
             let cur = h.last().copied().unwrap_or(0);

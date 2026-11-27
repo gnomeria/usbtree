@@ -22,6 +22,20 @@ use ratatui::style::Style;
 pub const RESCAN_INTERVAL: Duration = Duration::from_secs(1);
 pub const HIGHLIGHT_TTL: Duration = Duration::from_secs(30);
 
+fn full_details(d: &Device, id: &str) -> String {
+    let mut text = format!("{}\n{id}\n{}", d.label(), d.name);
+    if let Some(s) = &d.serial {
+        text.push_str(&format!("\n{s}"));
+    }
+    for node in &d.storage {
+        text.push_str(&format!("\n{}", node.path));
+        for mount in &node.mounts {
+            text.push_str(&format!("\n  mounted at {mount}"));
+        }
+    }
+    text
+}
+
 /// One hot-plug entry: the styled line for display, plus the raw id / name for
 /// yanking (`y` = id, `Y` = name).
 pub struct LogEvent {
@@ -202,6 +216,9 @@ pub struct App {
     /// full frame + pane rects from the last draw, for mapping mouse cells to rows
     pub screen: Rect,
     pub tree_rect: Rect,
+    pub detail_view: Rect,
+    pub detail_offset: usize,
+    pub detail_device: String,
     pub log_rect: Rect,
     /// open right-click copy menu, if any
     pub menu: Option<ContextMenu>,
@@ -275,6 +292,9 @@ impl App {
             eject_rx: None,
             screen: Rect::default(),
             tree_rect: Rect::default(),
+            detail_view: Rect::default(),
+            detail_offset: 0,
+            detail_device: String::new(),
             log_rect: Rect::default(),
             menu: None,
             filter: None,
@@ -486,6 +506,10 @@ impl App {
     pub fn scroll_at(&mut self, col: u16, row: u16, delta: isize) {
         self.menu = None;
         let pos = Position::new(col, row);
+        if self.detail_view.contains(pos) {
+            self.detail_offset = self.detail_offset.saturating_add_signed(delta);
+            return;
+        }
         let target = if self.tree_rect.contains(pos) {
             Focus::Tree
         } else if self.log_rect.contains(pos) {
@@ -512,11 +536,7 @@ impl App {
             if let Some(s) = &d.serial {
                 items.push(("serial".into(), s.clone(), "serial".into()));
             }
-            let mut block = format!("{}\n{id}\n{}", d.label(), d.name);
-            if let Some(s) = &d.serial {
-                block.push_str(&format!("\n{s}"));
-            }
-            items.push(("full details".into(), block, format!("{} details", d.name)));
+            items.push(("full details".into(), full_details(d, &id), format!("{} details", d.name)));
             items
         } else if let Some(idx) = self.log_row_at(col, row) {
             self.set_focus(Focus::Events);
@@ -596,17 +616,7 @@ impl App {
         let d = &self.render[i];
         let id = format!("{:04x}:{:04x}", d.vid, d.pid);
         let (text, what) = if full {
-            let mut t = format!("{}\n{id}\n{}", d.label(), d.name);
-            if let Some(s) = &d.serial {
-                t.push_str(&format!("\n{s}"));
-            }
-            for node in &d.storage {
-                t.push_str(&format!("\n{}", node.path));
-                for mount in &node.mounts {
-                    t.push_str(&format!("\n  mounted at {mount}"));
-                }
-            }
-            (t, format!("{} details", d.name))
+            (full_details(d, &id), format!("{} details", d.name))
         } else {
             (id.clone(), id)
         };
@@ -811,5 +821,60 @@ impl App {
                 self.theme_picker = Some((next_current, original));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn drive_app() -> App {
+        let mut app = App::new(true);
+        app.render = usb::demo_scan(3);
+        let drive = app.render.iter().position(|d| !d.storage.is_empty()).unwrap();
+        app.rows = vec![(0, drive)];
+        app.tree_rect = Rect::new(0, 0, 40, 10);
+        app
+    }
+
+    #[test]
+    fn full_details_menu_includes_storage_and_preserves_empty_format() {
+        let mut app = drive_app();
+        let index = app.rows[0].1;
+        app.render[index].serial = Some("123".into());
+        let d = &app.render[index];
+        let base = format!("{}\n{:04x}:{:04x}\n{}\n123", d.label(), d.vid, d.pid, d.name);
+        let expected = format!("{base}\n{}\n{}\n  mounted at {}",
+            d.storage[0].path, d.storage[1].path, d.storage[1].mounts[0]);
+        for text in [expected, base] {
+            app.open_menu(2, 1);
+            let items = &app.menu.as_ref().unwrap().items;
+            assert_eq!(items.iter().find(|i| i.0 == "full details").unwrap().1, text);
+            app.render[index].storage.clear();
+        }
+    }
+
+    #[test]
+    fn short_detail_pane_scrolls_to_last_endpoint_and_back() {
+        let mut app = drive_app();
+        let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        let mut seen = String::new();
+        for _ in 0..32 {
+            terminal.draw(|f| crate::ui::draw_detail(&mut app, f, f.area())).unwrap();
+            let buffer = terminal.backend().buffer();
+            for row in buffer.content.chunks(80) {
+                seen.extend(row.iter().map(|cell| cell.symbol()));
+                seen.push('\n');
+            }
+            app.scroll_at(4, 2, 1);
+        }
+        let mount = &app.render[app.rows[0].1].storage[1].mounts[0];
+        for needle in ["vid:pid", mount, "interfaces", "0x02"] {
+            assert!(seen.contains(needle), "missing {needle}");
+        }
+        app.scroll_at(4, 2, -32);
+        terminal.draw(|f| crate::ui::draw_detail(&mut app, f, f.area())).unwrap();
+        assert_eq!(terminal.backend().buffer()[(2, 1)].symbol(), &app.render[app.rows[0].1].icon().to_string());
     }
 }
