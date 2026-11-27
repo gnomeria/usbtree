@@ -223,16 +223,16 @@ pub mod theme {
         sky: Color::Rgb(0x83, 0xa5, 0x98),
     };
 
-    pub const THEME_NAMES: [&str; 9] = [
-        "Terminal (Auto)",
-        "Mocha (Dark)",
-        "Macchiato (Dark)",
-        "Latte (Light)",
-        "Dracula",
-        "Nord",
-        "Tokyo Night",
-        "Solarized (Light)",
-        "Gruvbox (Light)"
+    pub const THEME_NAMES: [(&str, &str); 9] = [
+        ("terminal", "Terminal (Auto)"),
+        ("mocha", "Mocha (Dark)"),
+        ("macchiato", "Macchiato (Dark)"),
+        ("latte", "Latte (Light)"),
+        ("dracula", "Dracula"),
+        ("nord", "Nord"),
+        ("tokyo-night", "Tokyo Night"),
+        ("solarized", "Solarized (Light)"),
+        ("gruvbox", "Gruvbox (Light)"),
     ];
 
     fn current() -> &'static ThemeColors {
@@ -658,7 +658,7 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
 
         if let Some((idx, _)) = app.theme_picker {
             let mut items: Vec<ListItem> = Vec::new();
-            for (i, name) in theme::THEME_NAMES.iter().enumerate() {
+            for (i, (_, name)) in theme::THEME_NAMES.iter().enumerate() {
                 let text = if i == idx {
                     format!(" > {} ", name)
                 } else {
@@ -672,7 +672,7 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                 items.push(ListItem::new(text).style(style));
             }
             
-            let w = theme::THEME_NAMES.iter().map(|n| n.len()).max().unwrap_or(20) as u16 + 8;
+            let w = theme::THEME_NAMES.iter().map(|(_, name)| name.len()).max().unwrap_or(20) as u16 + 8;
             let rect = centered(app.screen, w, items.len() as u16 + 2);
             f.render_widget(Clear, rect);
             

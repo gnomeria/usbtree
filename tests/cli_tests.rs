@@ -67,6 +67,25 @@ fn test_cli_unknown_flag_errors() {
 }
 
 #[test]
+fn test_cli_theme() {
+    let bin = env!("CARGO_BIN_EXE_usbtree");
+    for args in [vec!["--theme", "terminal"], vec!["--theme=tokyo-night"]] {
+        let output = Command::new(bin).args(args).args(["--demo", "--dump"]).output().unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Extreme SSD"));
+    }
+    for (args, error) in [
+        (vec!["--theme"], "--theme requires a theme name"),
+        (vec!["--theme", "--dump"], "--theme requires a theme name"),
+        (vec!["--theme", "typo"], "unknown theme `typo`"),
+    ] {
+        let output = Command::new(bin).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(error));
+    }
+}
+
+#[test]
 fn test_cli_demo_dump_has_output() {
     let bin_path = env!("CARGO_BIN_EXE_usbtree");
 

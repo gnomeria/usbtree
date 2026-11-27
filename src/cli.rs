@@ -3,8 +3,9 @@ use std::collections::HashSet;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Every accepted argument. Keep in sync with `help()` and the `main.rs` dispatch.
-pub const KNOWN_FLAGS: &[&str] = &[
+/// Switches that take no value.
+/// Keep in sync with `help()` and the dispatch in `main.rs`.
+const KNOWN_FLAGS: &[&str] = &[
     "--help",       "-h",
     "--version",
     "--dump",
@@ -20,6 +21,24 @@ pub const KNOWN_FLAGS: &[&str] = &[
 const INSTALL_SH: &str = "https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.sh";
 const INSTALL_PS1: &str =
     "https://raw.githubusercontent.com/gnomeria/usbtree/main/scripts/install.ps1";
+
+pub fn parse_theme<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<Option<u8>, String> {
+    let mut theme = None;
+    while let Some(arg) = args.next() {
+        let name = match arg {
+            "--light" => "latte",
+            "--theme" => args.next().filter(|s| !s.starts_with('-'))
+                .ok_or("--theme requires a theme name")?,
+            _ if KNOWN_FLAGS.contains(&arg) => continue,
+            _ => arg.strip_prefix("--theme=")
+                .ok_or_else(|| format!("unknown option `{arg}`"))?,
+        };
+        let index = crate::ui::theme::THEME_NAMES.iter().position(|&(key, _)| key == name)
+            .ok_or_else(|| format!("unknown theme `{name}`"))?;
+        theme = Some(index as u8);
+    }
+    Ok(theme)
+}
 
 /// `--version`
 pub fn version() {
@@ -41,9 +60,14 @@ Options:
   --updatelist  download the latest usb.ids into the config dir
   --upgrade     update usbtree in place via the official installer
   --demo        fake tree with scripted hot-plug + traffic (no hardware)
+  --theme NAME  select the startup theme
   --light       light theme (for light-background terminals)
   --nerd-font   nerd-font icons
-  --ascii       ascii-only icons"
+  --ascii       ascii-only icons
+
+Theme names:
+  {}",
+        crate::ui::theme::THEME_NAMES.map(|(key, _)| key).join(" ")
     );
 }
 
@@ -119,5 +143,21 @@ pub fn dump(demo: bool) {
                 println!("{indent}    mounted at {mount}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_theme;
+
+    #[test]
+    fn last_theme_option_selects_palette() {
+        let args = ["--light", "--theme", "tokyo-night"];
+        assert_eq!(parse_theme(args.into_iter()), Ok(Some(6)));
+
+        let args = ["--theme=terminal", "--light"];
+        assert_eq!(parse_theme(args.into_iter()), Ok(Some(3)));
+
+        assert_eq!(parse_theme(["--theme", "terminal"].into_iter()), Ok(Some(0)));
     }
 }
