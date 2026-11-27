@@ -15,10 +15,11 @@ pub static COLOR_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU
 fn main() -> std::io::Result<()> {
     // Reject unknown args up front — silently falling through to the TUI makes a
     // typo (or a stale binary that predates a flag) look like the flag did nothing.
-    if let Some(bad) = std::env::args().skip(1).find(|a| !cli::KNOWN_FLAGS.contains(&a.as_str())) {
-        eprintln!("usbtree: unknown option `{bad}`\ntry `usbtree --help`");
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let theme = cli::parse_theme(args.iter().map(String::as_str)).unwrap_or_else(|error| {
+        eprintln!("usbtree: {error}\ntry `usbtree --help`");
         std::process::exit(2);
-    }
+    });
     if std::env::args().any(|a| a == "--version") {
         cli::version();
         return Ok(());
@@ -35,8 +36,8 @@ fn main() -> std::io::Result<()> {
     } else if std::env::args().any(|a| a == "--ascii") {
         ICON_THEME.store(2, std::sync::atomic::Ordering::Relaxed);
     }
-    if std::env::args().any(|a| a == "--light") {
-        COLOR_THEME.store(3, std::sync::atomic::Ordering::Relaxed);
+    if let Some(theme) = theme {
+        COLOR_THEME.store(theme, std::sync::atomic::Ordering::Relaxed);
     }
     let demo = std::env::args().any(|a| a == "--demo");
     if std::env::args().any(|a| a == "--pci") {
