@@ -1,17 +1,17 @@
 ---
 id: flow-eject
 type: flow
-anchors: [src/usb.rs, src/main.rs]
+anchors: [src/app.rs, src/usb.rs, src/usb/storage.rs]
 ---
 # eject — safe unplug, `e` key to power-off
 
-`e` on a storage device → modal confirm dialog (main.rs) → `usb::eject()` on a
+`e` on a storage device → modal confirmation in `src/app.rs` → `usb::eject()` on a
 worker thread; result comes back over `eject_rx` so a slow power-off never
 freezes the UI ("ejecting…" line meanwhile). Linux only: udisksctl unmount +
-power-off per backing disk, unprivileged via polkit (`// ponytail:` marks the
-mac/windows gap). Busy partition = that drive stays powered, others proceed.
-Hub eject grabs all downstream disks. `--demo` fakes it via `demo_ejected` set.
+power-off per backing disk, unprivileged via polkit. Busy partitions and active
+block holders keep that drive powered. Eject resolves whole disks again using
+the display's nearest-interface rule. `--demo` fakes it via `demo_ejected` set.
 
 ## Relations
 - depends_on: module-usb
-- depends_on: module-main
+- depends_on: module-app

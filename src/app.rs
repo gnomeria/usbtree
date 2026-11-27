@@ -600,6 +600,12 @@ impl App {
             if let Some(s) = &d.serial {
                 t.push_str(&format!("\n{s}"));
             }
+            for node in &d.storage {
+                t.push_str(&format!("\n{}", node.path));
+                for mount in &node.mounts {
+                    t.push_str(&format!("\n  mounted at {mount}"));
+                }
+            }
             (t, format!("{} details", d.name))
         } else {
             (id.clone(), id)

@@ -6,6 +6,38 @@ use std::sync::OnceLock;
 use nusb::MaybeFuture;
 use usb_ids::FromId;
 
+#[cfg(target_os = "linux")]
+mod storage;
+#[cfg(target_os = "macos")]
+#[path = "usb/storage_macos.rs"]
+mod storage;
+#[cfg(windows)]
+#[path = "usb/storage_windows.rs"]
+mod storage;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StorageNode {
+    pub path: String,
+    pub mounts: Vec<String>,
+}
+
+fn display_path(path: &str) -> String {
+    let mut display = String::with_capacity(path.len());
+    for c in path.chars() {
+        if c.is_control()
+            || matches!(
+                c,
+                '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+            )
+        {
+            display.extend(c.escape_default());
+        } else {
+            display.push(c);
+        }
+    }
+    display
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Device {
     /// tree path, sysfs-style: "usb1" (root hub) or "1-1.4" (bus 1, port 1, port 4)
@@ -45,6 +77,9 @@ pub struct Device {
     /// Linux: unprivileged sysfs `descriptors`. macOS: from the config open we
     /// already do for power. Empty on Windows (no descriptor read there yet).
     pub interfaces: Vec<Interface>,
+    /// Linux block nodes, macOS BSD disks, or Windows physical drives and volumes,
+    /// with mount points reported by the host OS.
+    pub storage: Vec<StorageNode>,
 }
 
 /// One interface alternate setting and its endpoints.
@@ -333,12 +368,15 @@ pub fn scan() -> Vec<Device> {
                 devnum: 1, // root hub is always device 1 on its bus
                 max_power_ma: None,
                 interfaces: Vec::new(),
+                storage: Vec::new(),
             });
         }
     }
     let Ok(list) = nusb::list_devices().wait() else {
         return devices;
     };
+    #[cfg(any(target_os = "macos", windows))]
+    let mut owners = HashMap::new();
     for d in list {
         let chain = d.port_chain();
         if chain.is_empty() {
@@ -360,6 +398,10 @@ pub fn scan() -> Vec<Device> {
             .get(d.bus_id())
             .cloned()
             .unwrap_or_else(|| bus_label(d.bus_id(), &mut next_bus));
+        #[cfg(target_os = "macos")]
+        owners.insert(d.registry_entry_id(), devices.len());
+        #[cfg(windows)]
+        owners.insert(d.instance_id().to_string_lossy().to_ascii_uppercase(), devices.len());
         devices.push(Device {
             name: format!("{label}-{}", path.join(".")),
             vid: d.vendor_id(),
@@ -376,10 +418,15 @@ pub fn scan() -> Vec<Device> {
             iface_classes: infos.iter().map(|i| i.class()).filter(|&c| c != 0).collect(),
             config_attributes,
             devnum: d.device_address(),
+            storage: Vec::new(),
             max_power_ma,
             interfaces,
         });
     }
+    #[cfg(target_os = "linux")]
+    storage::populate(&mut devices);
+    #[cfg(any(target_os = "macos", windows))]
+    storage::populate(&mut devices, &owners);
     devices.sort_by_key(|d| sort_key(&d.name));
     devices
 }
@@ -722,6 +769,21 @@ pub fn demo_scan(t: u64) -> Vec<Device> {
         devnum: 0,
         max_power_ma: power,
         interfaces: demo_interfaces(name),
+        storage: if ifaces.contains(&0x08) {
+            let (disk, volume, mount) = if cfg!(windows) {
+                (r"\\.\PhysicalDrive2", r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\", r"E:\")
+            } else if cfg!(target_os = "macos") {
+                ("/dev/disk4", "/dev/disk4s1", "/Volumes/Extreme SSD")
+            } else {
+                ("/dev/sda", "/dev/sda1", "/media/demo/Extreme SSD")
+            };
+            vec![
+                StorageNode { path: disk.into(), mounts: vec![] },
+                StorageNode { path: volume.into(), mounts: vec![mount.into()] },
+            ]
+        } else {
+            Vec::new()
+        },
     };
     let t = t % 15;
     // attrs: 0x80 bus-powered, 0xa0 +remote-wakeup, 0xe0 self-powered +wakeup
@@ -882,22 +944,28 @@ pub fn diff<'a>(old: &'a [Device], new: &'a [Device]) -> (Vec<&'a Device>, Vec<&
 /// Safely eject the storage device at sysfs `name` (e.g. "2-1"): unmount its
 /// filesystems and cut port power via udisks2. All unprivileged — polkit lets
 /// a local-session user do this for removable drives, no root.
-// ponytail: Linux only. macOS/Windows have unprivileged equivalents (diskutil,
-// CM_Request_Device_Eject) but each needs a USB→disk map (IOKit / SetupAPI) this
-// tool doesn't build yet — wire up when someone runs it there.
+// ponytail: macOS and Windows already map USB devices to disks. Native eject
+// via `diskutil eject` or `CM_Request_Device_EjectW` is still unwired.
 #[cfg(target_os = "linux")]
 pub fn eject(name: &str) -> Result<String, String> {
     let disks = block_devices(name);
     if disks.is_empty() {
         return Err("no block device found for this port".into());
     }
-    // Eject every backing disk independently: a hub can carry several, and one
+    // Eject every backing disk independently: a reader can carry several, and one
     // busy drive must not abort the rest. Collect outcomes, report at the end.
     let mut ok = Vec::new();
     let mut errs = Vec::new();
     for disk in &disks {
         let mut busy = false;
-        for part in partitions(disk) {
+        let mut nodes = partitions(&PathBuf::from("/sys/block").join(disk));
+        nodes.push(disk.clone());
+        if nodes.iter().any(|n| fs::read_dir(format!("/sys/class/block/{n}/holders"))
+            .is_ok_and(|mut holders| holders.next().is_some())) {
+            errs.push(format!("{disk} in use by another block device — lock or deactivate the mapped device first"));
+            continue;
+        }
+        for part in nodes {
             // an unmounted partition errors with "not mounted" — harmless; only a
             // real in-use error blocks power-off, so surface that plainly
             if let Err(e) = udisksctl(&["unmount", "-b", &format!("/dev/{part}")])
@@ -936,9 +1004,7 @@ pub fn eject(_name: &str) -> Result<String, String> {
 }
 
 /// Whole-disk block device names (e.g. "sda") backing the USB device at sysfs
-/// `name`, found via `/sys/block/*` symlinks whose target path passes through
-/// this device. The `/name/` needle is slash-anchored so "2-1" can't match a
-/// sibling "12-1".
+/// `name`. Resolve again at eject time in case the device was unplugged.
 #[cfg(target_os = "linux")]
 fn block_devices(name: &str) -> Vec<String> {
     let Ok(entries) = fs::read_dir("/sys/block") else {
@@ -948,31 +1014,25 @@ fn block_devices(name: &str) -> Vec<String> {
         .flatten()
         .filter(|e| {
             fs::read_link(e.path())
-                .map(|t| under_usb_device(&t.to_string_lossy(), name))
+                .map(|t| storage::usb_owner(&t) == Some(name))
                 .unwrap_or(false)
         })
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect()
 }
 
-/// True if a `/sys/block/*` symlink `target` passes through USB device `name`.
-/// Slash-anchored so "2-1" matches only the "/2-1/" path segment, never a
-/// sibling "12-1".
-#[cfg(target_os = "linux")]
-fn under_usb_device(target: &str, name: &str) -> bool {
-    target.contains(&format!("/{name}/"))
-}
-
 /// Partition device names under a whole disk ("sda" -> ["sda1", "sda2"]).
 #[cfg(target_os = "linux")]
-fn partitions(disk: &str) -> Vec<String> {
-    fs::read_dir(format!("/sys/block/{disk}"))
+fn partitions(disk: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<_> = fs::read_dir(disk)
         .into_iter()
         .flatten()
         .flatten()
+        .filter(|e| e.path().join("partition").is_file())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.starts_with(disk))
-        .collect()
+        .collect();
+    names.sort_by_cached_key(|n| sort_key(n));
+    names
 }
 
 #[cfg(target_os = "linux")]

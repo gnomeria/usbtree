@@ -90,7 +90,8 @@ pub fn upgrade() -> std::io::Result<()> {
 
 /// Non-TUI mode: print the tree once and exit.
 pub fn dump(demo: bool) {
-    let devices = if demo { usb::demo_scan(0) } else { usb::scan() };
+    // Pick the demo frame with the SSD attached for the one-shot dump.
+    let devices = if demo { usb::demo_scan(10) } else { usb::scan() };
     let rows = usb::flatten(&devices, &HashSet::new());
     let rails = crate::ui::rails(&rows);
     for (r, &(_, i)) in rows.iter().enumerate() {
@@ -105,5 +106,18 @@ pub fn dump(demo: bool) {
             d.class_name(),
             d.label()
         );
+        if d.storage.is_empty() {
+            continue;
+        }
+        let mut indent = rails[r].replace("├─ ", "│  ").replace("└─ ", "   ");
+        if rows.get(r + 1).is_some_and(|next| next.0 > rows[r].0) {
+            indent.push('│');
+        }
+        for node in &d.storage {
+            println!("{indent}  {}", node.path);
+            for mount in &node.mounts {
+                println!("{indent}    mounted at {mount}");
+            }
+        }
     }
 }

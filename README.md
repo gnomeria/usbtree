@@ -79,6 +79,7 @@ Or grab a `usbtree_<version>_<os>-<arch>.{tar.gz,zip}` archive from the [latest 
 - Hot-plug watch — plugged flash green, unplugged linger as red ghosts for 30 s, all events logged with timestamps
 - Live per-device activity (Linux) — inline sparklines + detail-pane bandwidth graph; URBs/s unprivileged, real bytes/s via usbmon (root, see below)
 - Detail panel — sysfs path, vid:pid, vendor, class, speed, `bMaxPower`, serial, connected children
+- USB storage — select a drive or run `usbtree --dump` to see its disks, volumes, and mount points. Linux shows block paths (including stacked LUKS/LVM devices), macOS shows BSD disk paths and mounted volumes, and Windows shows physical drives, volume GUID paths, drive letters, and mounted folders.
 - Safe eject (Linux, unprivileged) — `e` on a mass-storage device unmounts + cuts port power via udisks2, with a confirm dialog
 - PCI view (`p`) — flat address-sorted PCI list with detail pane (prog-if, subsystem, link speed/width, NUMA, IOMMU group, power state)
 - Live filter (`/`), yank (`y` vid:pid, `Y` full details), `--dump` prints the tree once (no TUI)

@@ -19,6 +19,7 @@ fn dev(name: &str, vid: u16, pid: u16, class: u8, ifaces: &[u8]) -> Device {
             devnum: 0,
             max_power_ma: None,
             interfaces: Vec::new(),
+            storage: Vec::new(),
         }
     }
 
@@ -118,15 +119,30 @@ C 03  Human Interface Device\n\
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn block_symlink_slash_anchored() {
+    fn eject_targets_only_the_disk_owning_port() {
         let t = "../devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host6/target6:0:0/6:0:0:0/block/sda";
-        assert!(under_usb_device(t, "2-1"));
-        assert!(!under_usb_device(t, "12-1")); // sibling id, not a substring match
-        assert!(!under_usb_device(t, "2-2")); // different port
-        // ejecting a hub grabs disks on its downstream ports (path passes through it)
+        assert_eq!(storage::usb_owner(t.as_ref()), Some("2-1"));
         let child = "../devices/pci0000:00/usb2/2-1/2-1.4/2-1.4:1.0/host6/block/sdb";
-        assert!(under_usb_device(child, "2-1"));
-        assert!(under_usb_device(child, "2-1.4"));
+        assert_eq!(storage::usb_owner(child.as_ref()), Some("2-1.4"));
+        // sibling id "12-1" must never resolve to "2-1"
+        let sibling = "../devices/pci0000:00/usb2/12-1/12-1:1.0/host7/target7:0:0/7:0:0:0/block/sdc";
+        assert_eq!(storage::usb_owner(sibling.as_ref()), Some("12-1"));
+        // SCSI "6:0:0:0" / PCI "0000:00:17.0" colons are not USB interfaces
+        let sata = "../devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/block/sda";
+        assert_eq!(storage::usb_owner(sata.as_ref()), None);
+        // root hub interface "2-0:1.0" sits under "usb2", not a "2-0" device
+        assert_eq!(storage::usb_owner("../devices/pci0000:00/usb2/2-0:1.0".as_ref()), None);
+    }
+
+    #[test]
+    fn display_path_escapes_terminal_controls() {
+        assert_eq!(display_path("/media/Extreme SSD"), "/media/Extreme SSD");
+        assert_eq!(display_path(r"E:\"), r"E:\");
+        assert_eq!(display_path("/media/\x1b[31mred"), r"/media/\u{1b}[31mred");
+        assert_eq!(display_path("a\nb\tc"), r"a\nb\tc");
+        // bidi overrides can make a path render reversed
+        assert_eq!(display_path("/x/\u{202e}gpj.exe"), r"/x/\u{202e}gpj.exe");
+        assert_eq!(display_path("/x/\u{2066}y"), r"/x/\u{2066}y");
     }
 
     #[cfg(target_os = "linux")]
