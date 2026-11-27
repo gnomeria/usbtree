@@ -36,9 +36,6 @@ fn main() -> std::io::Result<()> {
     } else if std::env::args().any(|a| a == "--ascii") {
         ICON_THEME.store(2, std::sync::atomic::Ordering::Relaxed);
     }
-    if let Some(theme) = theme {
-        COLOR_THEME.store(theme, std::sync::atomic::Ordering::Relaxed);
-    }
     let demo = std::env::args().any(|a| a == "--demo");
     if std::env::args().any(|a| a == "--pci") {
         pci::dump();
@@ -60,6 +57,16 @@ fn main() -> std::io::Result<()> {
             }
         }
         return Ok(());
+    }
+    // Read after the no-TUI exits above, so a bad USBTREE_THEME never breaks --dump.
+    let env_theme = std::env::var_os("USBTREE_THEME");
+    let env_theme = env_theme.as_ref().map(|value| value.to_string_lossy());
+    let theme = cli::resolve_theme(theme, env_theme.as_deref()).unwrap_or_else(|error| {
+        eprintln!("usbtree: {error}\ntry `usbtree --help`");
+        std::process::exit(2);
+    });
+    if let Some(theme) = theme {
+        COLOR_THEME.store(theme, std::sync::atomic::Ordering::Relaxed);
     }
     let mut terminal = ratatui::init();
     let _ = ratatui::crossterm::execute!(std::io::stdout(), EnableMouseCapture);

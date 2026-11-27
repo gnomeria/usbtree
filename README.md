@@ -98,8 +98,10 @@ usbtree --light           # use light theme (for light background terminals)
 usbtree --theme terminal  # use the terminal's own colors
 ```
 
-Run `usbtree --help` for theme names. If you pass multiple theme options,
-the last one wins, including `--light` (Latte).
+Set `USBTREE_THEME` for a default startup theme, e.g.
+`export USBTREE_THEME=tokyo-night`. It accepts the same names and aliases as
+`--theme` (see `usbtree --help`). Theme flags override the environment. The
+last flag wins, including `--light` (Latte).
 
 `--upgrade` re-runs the official installer for your platform, so it honours the
 same env vars — e.g. `USBTREE_VERSION=0.1.0 usbtree --upgrade` pins a version,
