@@ -942,6 +942,12 @@ pub fn focus_ring(block: Block<'_>, focused: bool) -> Block<'_> {
                 kids.to_string().fg(theme::text()),
             ]));
         }
+        for node in &d.storage {
+            lines.push(Line::from(vec![key("device"), node.path.clone().fg(theme::text())]));
+            for mount in &node.mounts {
+                lines.push(Line::from(vec![key("mount"), mount.clone().fg(theme::text())]));
+            }
+        }
         if !d.interfaces.is_empty() {
             lines.push(Line::from("─".repeat(24).fg(theme::faint())));
             lines.push(Line::from("interfaces".fg(theme::dim())));

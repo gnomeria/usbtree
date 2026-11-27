@@ -82,5 +82,14 @@ fn test_cli_demo_dump_has_output() {
     );
     
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.is_empty(), "Demo dump output should not be empty");
+    let (_, storage) = stdout.split_once("Extreme SSD").expect("demo SSD");
+    let (disk, mount) = if cfg!(windows) {
+        (r"\\.\PhysicalDrive2", r"mounted at E:\")
+    } else if cfg!(target_os = "macos") {
+        ("/dev/disk4s1", "mounted at /Volumes/Extreme SSD")
+    } else {
+        ("/dev/sda1", "mounted at /media/demo/Extreme SSD")
+    };
+    assert!(storage.contains(disk));
+    assert!(storage.contains(mount));
 }
