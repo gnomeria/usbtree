@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.3](https://github.com/gnomeria/usbtree/compare/v0.1.2...v0.1.3) (2026-11-27)
+
+
+### Features
+
+* **cli:** add --theme flag ([86a18be](https://github.com/gnomeria/usbtree/commit/86a18bee20a2ed8da85cf218c1a4294fcacfaab9))
+* **cli:** read default theme from USBTREE_THEME ([230d8ea](https://github.com/gnomeria/usbtree/commit/230d8ea5244d19e5bba66ea8569998f8343395f0))
+* **usb:** show storage disks, volumes, and mounts per device ([3aece5d](https://github.com/gnomeria/usbtree/commit/3aece5d93abb3bf17cf62f4fa1e50a2966399b9a))
+
+
+### Bug Fixes
+
+* **cli:** accept theme aliases and picker labels case-insensitively ([749563e](https://github.com/gnomeria/usbtree/commit/749563e52eff5f0fdec12281600a1d5283d9512a))
+* **usb:** find holder partitions, scroll and copy full device details ([03de9d0](https://github.com/gnomeria/usbtree/commit/03de9d00f54de00bbc48ef809b4736a1cfe6c100))
+
 ## [0.1.2](https://github.com/gnomeria/usbtree/compare/v0.1.1...v0.1.2) (2026-10-29)
 
 
