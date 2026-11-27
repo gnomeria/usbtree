@@ -39,6 +39,12 @@ use crate::app::{App, Tab, RESCAN_INTERVAL};
                             KeyCode::Tab | KeyCode::BackTab if app.tab == Tab::Usb => {
                                 app.toggle_focus()
                             }
+                            KeyCode::PageDown if app.tab == Tab::Usb => {
+                                app.detail_offset = app.detail_offset.saturating_add(app.detail_view.height as usize);
+                            }
+                            KeyCode::PageUp if app.tab == Tab::Usb => {
+                                app.detail_offset = app.detail_offset.saturating_sub(app.detail_view.height as usize);
+                            }
                             KeyCode::Down | KeyCode::Char('j') => app.nav(1),
                             KeyCode::Up | KeyCode::Char('k') => app.nav(-1),
                             KeyCode::Char('g') | KeyCode::Home => app.nav_to(0),
