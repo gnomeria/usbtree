@@ -33,19 +33,34 @@ pub fn parse_theme<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<Option
             _ => arg.strip_prefix("--theme=")
                 .ok_or_else(|| format!("unknown option `{arg}`"))?,
         };
-        let lowercase = name.to_ascii_lowercase();
-        let lookup = match lowercase.as_str() {
-            "auto" => "terminal",
-            "light" => "latte",
-            "dark" => "tokyo-night",
-            name => name,
-        };
-        let index = crate::ui::theme::THEME_NAMES.iter()
-            .position(|&(key, label)| key == lookup || label.eq_ignore_ascii_case(lookup))
-            .ok_or_else(|| format!("unknown theme `{name}`"))?;
-        theme = Some(index as u8);
+        theme = Some(theme_index(name)?);
     }
     Ok(theme)
+}
+
+pub fn theme_index(name: &str) -> Result<u8, String> {
+    let lowercase = name.to_ascii_lowercase();
+    let lookup = match lowercase.as_str() {
+        "auto" => "terminal",
+        "light" => "latte",
+        "dark" => "tokyo-night",
+        name => name,
+    };
+    crate::ui::theme::THEME_NAMES.iter()
+        .position(|&(key, label)| key == lookup || label.eq_ignore_ascii_case(lookup))
+        .map(|index| index as u8)
+        .ok_or_else(|| format!("unknown theme `{name}`"))
+}
+
+/// A theme flag wins over `USBTREE_THEME`; an empty env value counts as unset.
+pub fn resolve_theme(flag: Option<u8>, env: Option<&str>) -> Result<Option<u8>, String> {
+    match (flag, env) {
+        (Some(theme), _) => Ok(Some(theme)),
+        (None, Some(name)) if !name.is_empty() => theme_index(name)
+            .map(Some)
+            .map_err(|error| format!("USBTREE_THEME: {error}")),
+        _ => Ok(None),
+    }
 }
 
 /// `--version`
@@ -68,7 +83,7 @@ Options:
   --updatelist  download the latest usb.ids into the config dir
   --upgrade     update usbtree in place via the official installer
   --demo        fake tree with scripted hot-plug + traffic (no hardware)
-  --theme NAME  select the startup theme
+  --theme NAME  select the startup theme (overrides USBTREE_THEME)
   --light       select Latte (also --theme light or --theme latte)
   --nerd-font   nerd-font icons
   --ascii       ascii-only icons
@@ -76,7 +91,8 @@ Options:
 Theme names:
   {}
   Aliases: auto = terminal, light = latte, dark = tokyo-night
-  Picker labels also work, e.g. --theme \"Tokyo Night\". Names ignore case.",
+  Picker labels also work, e.g. --theme \"Tokyo Night\". Names ignore case.
+  USBTREE_THEME=NAME sets the default theme.",
         crate::ui::theme::THEME_NAMES.map(|(key, _)| key).join(" ")
     );
 }
@@ -158,7 +174,16 @@ pub fn dump(demo: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_theme;
+    use super::{parse_theme, resolve_theme};
+
+    #[test]
+    fn theme_flag_overrides_env() {
+        assert_eq!(resolve_theme(Some(5), Some("typo")), Ok(Some(5)));
+        assert_eq!(resolve_theme(None, Some("nord")), Ok(Some(5)));
+        assert_eq!(resolve_theme(None, Some("")), Ok(None));
+        assert_eq!(resolve_theme(None, None), Ok(None));
+        assert_eq!(resolve_theme(None, Some("typo")), Err("USBTREE_THEME: unknown theme `typo`".into()));
+    }
 
     #[test]
     fn every_theme_accepts_key_and_picker_label() {

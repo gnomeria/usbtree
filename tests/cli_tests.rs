@@ -86,6 +86,28 @@ fn test_cli_theme() {
 }
 
 #[test]
+fn test_cli_env_theme_invalid() {
+    let output = Command::new(env!("CARGO_BIN_EXE_usbtree"))
+        .env("USBTREE_THEME", "typo")
+        .arg("--demo")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("USBTREE_THEME: unknown theme `typo`"));
+}
+
+#[test]
+fn test_cli_env_theme_invalid_ignored_by_dump() {
+    let output = Command::new(env!("CARGO_BIN_EXE_usbtree"))
+        .env("USBTREE_THEME", "typo")
+        .args(["--demo", "--dump"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Extreme SSD"));
+}
+
+#[test]
 fn test_cli_demo_dump_has_output() {
     let bin_path = env!("CARGO_BIN_EXE_usbtree");
 
