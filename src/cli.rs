@@ -26,14 +26,22 @@ pub fn parse_theme<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<Option
     let mut theme = None;
     while let Some(arg) = args.next() {
         let name = match arg {
-            "--light" => "latte",
+            "--light" => "light",
             "--theme" => args.next().filter(|s| !s.starts_with('-'))
                 .ok_or("--theme requires a theme name")?,
             _ if KNOWN_FLAGS.contains(&arg) => continue,
             _ => arg.strip_prefix("--theme=")
                 .ok_or_else(|| format!("unknown option `{arg}`"))?,
         };
-        let index = crate::ui::theme::THEME_NAMES.iter().position(|&(key, _)| key == name)
+        let lowercase = name.to_ascii_lowercase();
+        let lookup = match lowercase.as_str() {
+            "auto" => "terminal",
+            "light" => "latte",
+            "dark" => "tokyo-night",
+            name => name,
+        };
+        let index = crate::ui::theme::THEME_NAMES.iter()
+            .position(|&(key, label)| key == lookup || label.eq_ignore_ascii_case(lookup))
             .ok_or_else(|| format!("unknown theme `{name}`"))?;
         theme = Some(index as u8);
     }
@@ -61,12 +69,14 @@ Options:
   --upgrade     update usbtree in place via the official installer
   --demo        fake tree with scripted hot-plug + traffic (no hardware)
   --theme NAME  select the startup theme
-  --light       light theme (for light-background terminals)
+  --light       select Latte (also --theme light or --theme latte)
   --nerd-font   nerd-font icons
   --ascii       ascii-only icons
 
 Theme names:
-  {}",
+  {}
+  Aliases: auto = terminal, light = latte, dark = tokyo-night
+  Picker labels also work, e.g. --theme \"Tokyo Night\". Names ignore case.",
         crate::ui::theme::THEME_NAMES.map(|(key, _)| key).join(" ")
     );
 }
@@ -149,6 +159,30 @@ pub fn dump(demo: bool) {
 #[cfg(test)]
 mod tests {
     use super::parse_theme;
+
+    #[test]
+    fn every_theme_accepts_key_and_picker_label() {
+        for (index, (key, label)) in crate::ui::theme::THEME_NAMES.iter().enumerate() {
+            for name in [*key, *label, &key.to_ascii_uppercase()] {
+                assert_eq!(parse_theme(["--theme", name].into_iter()), Ok(Some(index as u8)), "{name}");
+            }
+        }
+        assert_eq!(parse_theme(["--theme=DARK"].into_iter()), Ok(Some(6)));
+    }
+
+    #[test]
+    fn auto_theme_selects_terminal() {
+        assert_eq!(parse_theme(["--theme", "auto"].into_iter()), Ok(Some(0)));
+        assert_eq!(parse_theme(["--theme=auto"].into_iter()), Ok(Some(0)));
+    }
+
+    #[test]
+    fn light_theme_alias_selects_latte() {
+        let latte = parse_theme(["--theme", "latte"].into_iter());
+        assert_eq!(latte, Ok(Some(3)));
+        assert_eq!(parse_theme(["--theme", "light"].into_iter()), latte);
+        assert_eq!(parse_theme(["--theme=light"].into_iter()), latte);
+    }
 
     #[test]
     fn last_theme_option_selects_palette() {
