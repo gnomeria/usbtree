@@ -48,7 +48,7 @@ jobs:
           # linux → static musl: no glibc version floor, runs on any distro.
           - { name: linux-amd64, runner: ubuntu-24.04, os: linux, target: x86_64-unknown-linux-musl }
           - { name: linux-arm64, runner: ubuntu-24.04-arm, os: linux, target: aarch64-unknown-linux-musl }
-          - { name: darwin-arm64, runner: macos-14, os: macos, target: aarch64-apple-darwin }
+          - { name: darwin-arm64, runner: macos-15,os: macos, target: aarch64-apple-darwin }
           - { name: windows-amd64, runner: windows-latest, os: windows, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v7
