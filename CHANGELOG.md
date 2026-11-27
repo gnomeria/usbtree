@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/gnomeria/usbtree/compare/v0.1.3...v0.1.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ci:** build darwin-arm64 release on macos-15 runner ([e5f3910](https://github.com/gnomeria/usbtree/commit/e5f391094284ec445a8dc3d98c420c43014346ca))
+
 ## [0.1.3](https://github.com/gnomeria/usbtree/compare/v0.1.2...v0.1.3) (2026-11-27)
 
 
